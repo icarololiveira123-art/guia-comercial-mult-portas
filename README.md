@@ -2,7 +2,7 @@
 
 Aplicação interna para atendimento comercial, acompanhamento individual e treinamento de conversas da equipe Mult Portas.
 
-Produção: [guia-comercial-mult-portas.eletrovale-cont.chatgpt.site](https://guia-comercial-mult-portas.eletrovale-cont.chatgpt.site)
+Produção: [guia-comercial-mult-portas.site](https://guia-comercial-mult-portas.site)
 
 ## O que está incluído
 

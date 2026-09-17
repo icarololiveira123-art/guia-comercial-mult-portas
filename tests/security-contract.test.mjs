@@ -21,7 +21,7 @@ test("untrusted websites cannot perform session-backed mutations", async () => {
   const worker = await loadWorker();
   const paths = ["/api/auth/login", "/api/auth/register", "/api/auth/logout", "/api/auth/profile", "/api/data", "/api/coach"];
   for (const path of paths) {
-    const response = await worker.fetch(new Request(`https://guia-comercial-mult-portas.eletrovale-cont.chatgpt.site${path}`, {
+    const response = await worker.fetch(new Request(`https://guia-comercial-mult-portas.site${path}`, {
       method: path === "/api/data" ? "PUT" : path === "/api/auth/profile" ? "PATCH" : "POST",
       headers: { Origin: "https://example.invalid", "Content-Type": "application/json" },
       body: "{}",

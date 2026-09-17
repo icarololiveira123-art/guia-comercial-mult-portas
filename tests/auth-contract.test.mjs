@@ -63,7 +63,7 @@ test("auth and employee-data errors always return JSON", async () => {
 test("the GitHub mirror cannot call the private application API", async () => {
   const worker = await loadWorker();
   const response = await worker.fetch(
-    new Request("https://guia-comercial-mult-portas.eletrovale-cont.chatgpt.site/api/auth/logout", {
+    new Request("https://guia-comercial-mult-portas.site/api/auth/logout", {
       method: "POST",
       headers: { Origin: "https://icaroluciano13-dot.github.io" },
     }),
@@ -129,7 +129,7 @@ test("login attempts are rate limited before repeated expensive authentication",
 test("admin login rejects an unapproved web origin", async () => {
   const worker = await loadWorker();
   const response = await worker.fetch(
-    new Request("https://guia-comercial-mult-portas.eletrovale-cont.chatgpt.site/api/auth/login", {
+    new Request("https://guia-comercial-mult-portas.site/api/auth/login", {
       method: "POST",
       headers: {
         Origin: "https://example.invalid",
