@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 
-const productionUrl = "https://guia-comercial-mult-portas.site";
+const productionUrl = "https://guia-comercial-mult-portas.eletrovale-cont.chatgpt.site";
 const html = `<!doctype html>
 <html lang="pt-BR">
   <head>

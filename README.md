@@ -2,7 +2,7 @@
 
 Aplicação interna para atendimento comercial, acompanhamento individual e treinamento de conversas da equipe Mult Portas.
 
-Produção: [guia-comercial-mult-portas.site](https://guia-comercial-mult-portas.site)
+Produção: [icarololiveira123-art.github.io/guia-comercial-mult-portas](https://icarololiveira123-art.github.io/guia-comercial-mult-portas/)
 
 ## O que está incluído
 
