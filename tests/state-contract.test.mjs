@@ -54,6 +54,20 @@ test("employee state is bounded and ignores unknown or unsafe fields", () => {
   });
 });
 
+test("follow-up bounds preserve the newest entries shown first in the UI", () => {
+  const followups = Array.from({ length: 241 }, (_, index) => ({
+    id: index === 0 ? "newest" : `older-${index}`,
+    client: `Cliente ${index}`,
+    next: "Retornar",
+    done: false,
+  }));
+  const state = normalizeEmployeeState({ followups });
+
+  assert.equal(state.followups.length, 240);
+  assert.equal(state.followups[0].id, "newest");
+  assert.equal(state.followups.some((item) => item.id === "older-240"), false);
+});
+
 test("factory migration preserves legacy Dalcomad kits and enforces the fixed scope", () => {
   const state = normalizeEmployeeState({
     factory: {

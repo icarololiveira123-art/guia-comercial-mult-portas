@@ -2,7 +2,7 @@
 
 Aplicação interna para atendimento comercial, acompanhamento individual e treinamento de conversas da equipe Mult Portas.
 
-Produção: [icarololiveira123-art.github.io/guia-comercial-mult-portas](https://icarololiveira123-art.github.io/guia-comercial-mult-portas/)
+Entrada pública: [icarololiveira123-art.github.io/guia-comercial-mult-portas](https://icarololiveira123-art.github.io/guia-comercial-mult-portas/). O GitHub Pages redireciona para o aplicativo dinâmico em `guia-comercial-mult-portas.eletrovale-cont.chatgpt.site`; o endereço na barra do navegador muda após abrir o link.
 
 ## O que está incluído
 
@@ -23,7 +23,7 @@ Produção: [icarololiveira123-art.github.io/guia-comercial-mult-portas](https:/
 - inicialização idempotente do esquema D1 para recuperar automaticamente bancos novos ou ainda não migrados;
 - cookies de sessão `HttpOnly`, validação de origem e respostas de API sem cache;
 - estado persistido com contrato versionado, limites de tamanho e normalização no servidor;
-- GitHub como espelho versionado do código; o domínio oficial do Sites é o único runtime autenticado.
+- GitHub como espelho versionado do código e Pages como porta de entrada estática; o domínio do Sites é o runtime autenticado. Um push no GitHub **não** implanta mudanças do Worker, das APIs ou do D1 no Sites.
 
 A tela de autenticação vive em `app/auth-screen.tsx`. O conteúdo do guia permanece em `app/page.tsx`, de modo que atualizações do conteúdo não alterem a fronteira de acesso.
 
@@ -49,6 +49,8 @@ npm test
 npm run test:e2e
 npm run validate:artifact
 ```
+
+Para prévia local do build no runtime Cloudflare, use `npm start` (compila e inicia `vite preview` em `127.0.0.1`). Publicar a aplicação funcional exige acesso ao projeto de hospedagem que contém o D1 e suas variáveis; publicar apenas no GitHub Pages atualiza somente o redirecionamento.
 
 `npm test` compila a aplicação e executa os contratos de autenticação, segurança, estado, hashing, renderização, exportação Excel, recuperação do esquema e qualidade do treinador. `npm run test:e2e` sobe D1 e o Worker localmente para validar cadastro zerado, persistência após sair e entrar, isolamento entre contas e bloqueio de origem externa.
 

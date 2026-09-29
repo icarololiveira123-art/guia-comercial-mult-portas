@@ -6,10 +6,10 @@ function cleanText(value, maxLength = 240) {
 
 const fairDefaults = {
   eventName: "Feirão SUPER PROMO MULT PORTAS",
-  eventDate: "sábado, 29/08",
-  eventTime: "das 9h às 17h",
+  eventDate: "",
+  eventTime: "",
   city: "Araraquara",
-  discount: "até 60% OFF",
+  discount: "",
 };
 
 export const fairClientProfiles = [
@@ -269,6 +269,22 @@ function spokenDiscount(value) {
 }
 
 function eventOptions({ eventName, eventDate, eventTime, city, discount }) {
+  if (!eventDate || !eventTime || !city || !discount) {
+    return [
+      `A data, o horário e as condições do ${eventName} em ${city} serão confirmados pela equipe.`,
+      `Assim que a programação do ${eventName} em ${city} estiver definida, a equipe confirmará data, horário e condições.`,
+      `Os detalhes de data, horário e condições do ${eventName} em ${city} ainda serão confirmados pela equipe.`,
+      `O ${eventName} está em preparação para ${city}; data, horário e condições serão informados pela equipe.`,
+      `A equipe divulgará a data, o horário e as condições do ${eventName} em ${city} assim que estiverem definidos.`,
+      `A programação completa do ${eventName} em ${city}, incluindo data, horário e condições, será confirmada pela equipe.`,
+      `Antes do ${eventName} em ${city}, a equipe confirmará a data, o horário e todas as condições.`,
+      `O convite do ${eventName} em ${city} será atualizado quando data, horário e condições estiverem confirmados.`,
+      `A Mult Portas confirmará com antecedência a data, o horário e as condições do ${eventName} em ${city}.`,
+      `A edição do ${eventName} em ${city} terá data, horário e condições divulgados pela equipe.`,
+      `A equipe ainda vai informar a data, o horário e as condições completas do ${eventName} em ${city}.`,
+      `Data, horário e condições do ${eventName} em ${city} serão comunicados assim que a programação estiver pronta.`,
+    ];
+  }
   const products = "portas e janelas de aço, alumínio e madeira";
   return [
     `Neste ${eventDate}, teremos o ${eventName}, ${eventTime}, em ${city}, com ${discount} em ${products}.`,

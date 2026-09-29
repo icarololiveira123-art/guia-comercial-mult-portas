@@ -22,14 +22,14 @@ test("monta um convite personalizado e pronto para WhatsApp", () => {
     interest: "Porta de alumínio",
     channel: "WhatsApp",
     tone: "welcoming",
-    eventDate: "sábado, 29/08",
-    eventTime: "das 9h às 17h",
+    eventDate: "sábado, 31/12/2099",
+    eventTime: "das 10h às 18h",
     city: "Araraquara",
-    discount: "até 60% OFF",
+    discount: "até 25% OFF",
     includeEmojis: true,
   });
 
-  for (const expected of ["Carlos", "Ícaro", "porta de alumínio", "sábado, 29/08", "das 9h às 17h", "Araraquara", "até 60% OFF", "portas e janelas de aço, alumínio e madeira"]) {
+  for (const expected of ["Carlos", "Ícaro", "porta de alumínio", "sábado, 31/12/2099", "das 10h às 18h", "Araraquara", "até 25% OFF", "portas e janelas de aço, alumínio e madeira"]) {
     assert.match(message, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"));
   }
   assert.match(message, /orçamento que preparamos/i);
@@ -48,9 +48,23 @@ test("gera convite neutro sem depender dos campos opcionais", () => {
   assert.match(message, /^Oi! Tudo bem\?/);
   assert.match(message, /equipe da Mult Portas/);
   assert.match(message, /convite da Mult Portas/);
+  assert.match(message, /data, o horário e as condições.+serão confirmados/i);
+  assert.doesNotMatch(message, /sábado, 29\/08|das 9h às 17h|60%/i);
   assert.doesNotMatch(message, /undefined|null|nan|\[nome\]|\[produto\]|\[consultor\]/i);
   assert.doesNotMatch(message, / {2,}/);
   assert.match(message, /\?$/);
+});
+
+test("nenhuma variação padrão ressuscita data, horário ou desconto vencidos", () => {
+  for (const channel of ["WhatsApp", "Áudio"]) {
+    for (let variation = 0; variation < FAIR_VARIATION_COUNT; variation += 1) {
+      const message = buildFairMessage({ channel, variation });
+      assert.match(message, /data/i);
+      assert.match(message, /horário/i);
+      assert.match(message, /condições/i);
+      assert.doesNotMatch(message, /sábado, 29\/08|das 9h às 17h|60%/i);
+    }
+  }
 });
 
 test("mantém as 6.048 combinações de perfil, tom, canal e variação completas e cordiais", () => {
@@ -70,12 +84,15 @@ test("mantém as 6.048 combinações de perfil, tom, canal e variação completa
             clientName: "Cliente",
             consultantName: "Consultor",
             interest: "porta de madeira",
+            eventDate: "sábado, 31/12/2099",
+            eventTime: "das 10h às 18h",
+            discount: "até 25% OFF",
             variation,
           });
           assert.ok(message.length > 260 && message.length < 1200, `${profile.id}/${tone.id}/${channel}/${variation} deve ter tamanho utilizável`);
           assert.match(message, /Feirão SUPER PROMO MULT PORTAS/);
           assert.match(message, /Araraquara/);
-          assert.match(message, /60%/);
+          assert.match(message, /25%/);
           assert.match(message, /\?$/);
           assert.doesNotMatch(message, /undefined|null|nan|placeholder|\[object Object\]|menor preço|última chance|você sumiu|garantido/i);
           assert.doesNotMatch(message, /\bTODO\b/);
@@ -83,8 +100,8 @@ test("mantém as 6.048 combinações de perfil, tom, canal e variação completa
           if (channel === "Áudio") {
             assert.doesNotMatch(message, /\p{Extended_Pictographic}/u);
             assert.doesNotMatch(message, /\n/);
-            assert.match(message, /sábado, dia 29 de agosto/);
-            assert.match(message, /60% de desconto/);
+            assert.match(message, /sábado, dia 31 de dezembro de 2099/);
+            assert.match(message, /25% de desconto/);
           }
         }
       }
@@ -272,13 +289,54 @@ test("salva e normaliza a personalização do Feirão por funcionário", () => {
     interest: "",
     channel: "WhatsApp",
     tone: "welcoming",
-    eventDate: "sábado, 29/08",
-    eventTime: "das 9h às 17h",
+    eventDate: "",
+    eventTime: "",
     city: "Araraquara",
-    discount: "até 60% OFF",
+    discount: "",
     emojiMode: "mixed",
     includeEmojis: true,
   });
+});
+
+test("remove apenas a campanha legada completa ao migrar o estado", () => {
+  const migrated = normalizeEmployeeState({
+    messages: {
+      fair: {
+        eventDate: "  sábado, 29/08  ",
+        eventTime: "  das 9h às 17h  ",
+        discount: "  até 60% OFF  ",
+      },
+    },
+  });
+  assert.equal(migrated.messages.fair.eventDate, "");
+  assert.equal(migrated.messages.fair.eventTime, "");
+  assert.equal(migrated.messages.fair.discount, "");
+
+  const current = normalizeEmployeeState({
+    messages: {
+      fair: {
+        eventDate: "sábado, 29/08/2099",
+        eventTime: "das 9h às 18h",
+        discount: "até 50% OFF",
+      },
+    },
+  });
+  assert.equal(current.messages.fair.eventDate, "sábado, 29/08/2099");
+  assert.equal(current.messages.fair.eventTime, "das 9h às 18h");
+  assert.equal(current.messages.fair.discount, "até 50% OFF");
+
+  const reusedDetails = normalizeEmployeeState({
+    messages: {
+      fair: {
+        eventDate: "sábado, 21/09/2099",
+        eventTime: "das 9h às 17h",
+        discount: "até 60% OFF",
+      },
+    },
+  });
+  assert.equal(reusedDetails.messages.fair.eventDate, "sábado, 21/09/2099");
+  assert.equal(reusedDetails.messages.fair.eventTime, "das 9h às 17h");
+  assert.equal(reusedDetails.messages.fair.discount, "até 60% OFF");
 });
 
 test("expõe uma aba acessível com personalização, prévia e modelos prontos", async () => {

@@ -2619,10 +2619,10 @@ export default function Home() {
   const [fairInterest, setFairInterest] = useState("");
   const [fairChannel, setFairChannel] = useState<QuickMessageChannel>("WhatsApp");
   const [fairTone, setFairTone] = useState<FairTone>("welcoming");
-  const [fairEventDate, setFairEventDate] = useState("sábado, 29/08");
-  const [fairEventTime, setFairEventTime] = useState("das 9h às 17h");
+  const [fairEventDate, setFairEventDate] = useState("");
+  const [fairEventTime, setFairEventTime] = useState("");
   const [fairCity, setFairCity] = useState("Araraquara");
-  const [fairDiscount, setFairDiscount] = useState("até 60% OFF");
+  const [fairDiscount, setFairDiscount] = useState("");
   const [fairEmojiMode, setFairEmojiMode] = useState<FairEmojiMode>("mixed");
   const [fairVariation, setFairVariation] = useState(0);
   const [catalogSearch, setCatalogSearch] = useState("");
@@ -2678,11 +2678,12 @@ export default function Home() {
   const pendingStateRef = useRef<{ userId: number; state: PersistedGuideState; baseRevision: string | null } | null>(null);
   const saveTimerRef = useRef<number | null>(null);
   const flushLoopRef = useRef<Promise<boolean> | null>(null);
+  const sessionEpochRef = useRef(0);
   const revisionRef = useRef<string | null>(null);
   const skipNextAutosaveRef = useRef(false);
   const toastTimerRef = useRef<number | null>(null);
   const trainingChatEndRef = useRef<HTMLDivElement | null>(null);
-  const trainingRequestRef = useRef<{ id: number; controller: AbortController } | null>(null);
+  const trainingRequestRef = useRef<{ id: number; controller: AbortController; sellerMessage: string; audioUrl?: string } | null>(null);
   const trainingRequestIdRef = useRef(0);
   const voiceCaptureAttemptRef = useRef(0);
   const profileDialogRef = useRef<HTMLElement | null>(null);
@@ -2693,8 +2694,120 @@ export default function Home() {
   const factoryIdRef = useRef(0);
   const authUserId = authUser?.id ?? null;
 
+  const resetEmployeeWorkspace = useCallback(() => {
+    // A request from the previous account may still finish after the next
+    // account signs in. Its result must not touch the new workspace.
+    sessionEpochRef.current += 1;
+    voiceCaptureAttemptRef.current += 1;
+    trainingRequestRef.current?.controller.abort();
+    trainingRequestRef.current = null;
+    speechRecognitionRef.current?.abort();
+    speechRecognitionRef.current = null;
+    const recorder = mediaRecorderRef.current;
+    if (recorder && recorder.state !== "inactive") recorder.stop();
+    mediaRecorderRef.current = null;
+    mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+    mediaStreamRef.current = null;
+    window.speechSynthesis?.cancel();
+    voiceUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+    voiceUrlsRef.current = [];
+    voiceChunksRef.current = [];
+    voiceFinalPartsRef.current = [];
+    if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = null;
+
+    setDoneSales([]);
+    setDoneTiming([]);
+    setFollowUps([]);
+    setDailyDone([]);
+    setMetrics({ ...defaultMetrics });
+    setTrainingStats(emptyTrainingStats());
+    setFactoryItems([]);
+    setDrawerChecks({});
+    setMessageAudience("Cliente");
+    setMessageName("");
+    setMessageLine("Kit porta pronta");
+    setMessageEnvironment("");
+    setMessageObjective("apresentar uma opção de qualidade");
+    setMessageQuestion("");
+    setMessageChannel("WhatsApp");
+    setMessageTone("Consultivo");
+    setMessageProof({ company: true, quality: true, guarantee: true });
+    setProviderProfile("Prestador de Serviço");
+    setProviderName("");
+    setProviderType(providerTypeOptions[0]);
+    setProviderRegion("Araraquara e região");
+    setProviderObjective(providerGoalOptions[0]);
+    setProviderQuestion(providerQuestionOptions[0]);
+    setFairProfileId("neutral");
+    setFairClientName("");
+    setFairConsultantName("");
+    setFairInterest("");
+    setFairChannel("WhatsApp");
+    setFairTone("welcoming");
+    setFairEventDate("");
+    setFairEventTime("");
+    setFairCity("Araraquara");
+    setFairDiscount("");
+    setFairEmojiMode("mixed");
+    setFairVariation(0);
+    setTrainingMessages([]);
+    setTrainingFeedback(null);
+    setTrainingStarted(false);
+    setTrainingBusy(false);
+    setTrainingInputMode("voice");
+    setTrainingLevelFilter("Todos");
+    setTrainingInput("");
+    setVoiceTranscript("");
+    setVoiceInterim("");
+    setVoicePreviewUrl("");
+    setVoiceSeconds(0);
+    setVoiceStatus("Pronto para treinar por áudio");
+    setVoiceCapturePending(false);
+    setIsRecording(false);
+    setSpeakingMessageId(null);
+    setToast(null);
+    setNewClient("");
+    setNewNext("");
+    setNewStatus("Aguardando retorno");
+    setNewPriority("Média");
+    setFilterStatus("Todos");
+    setFactoryWizardStep(0);
+    setFactoryWizardDraft(blankFactoryWizard());
+    setEditingFactoryItemId(null);
+    factoryIdRef.current = 0;
+    setSelectedCatalog(null);
+    setCatalogSearch("");
+    setCatalogFamily("Todas");
+    setBrand("dalcomad");
+    setActiveSalesStep(0);
+    setActiveTrainingScenario(0);
+    setActiveTimingStep(0);
+    setProfileOpen(false);
+    setProfileBusy(false);
+    setProfileError("");
+    setProfileForm({
+      displayName: "",
+      username: "",
+      branch: "Araraquara",
+      currentPassword: "",
+      newPassword: "",
+      confirmPassword: "",
+    });
+    setSection("overview");
+    setSaveStatus("idle");
+    setLastSavedAt(null);
+    setHydrated(false);
+    setDataLoaded(false);
+    setDataLoadError("");
+    revisionRef.current = null;
+  }, []);
+
   const flushPendingState = useCallback(async (): Promise<boolean> => {
-    if (flushLoopRef.current) return await flushLoopRef.current;
+    // A caller from a new session must start its own flush after the previous
+    // session's in-flight request finishes, not inherit its result.
+    while (flushLoopRef.current) await flushLoopRef.current;
+    const sessionEpoch = sessionEpochRef.current;
     const loop = (async (): Promise<boolean> => {
       if (saveTimerRef.current !== null) {
         window.clearTimeout(saveTimerRef.current);
@@ -2703,10 +2816,10 @@ export default function Home() {
 
       while (pendingStateRef.current) {
         const pending = pendingStateRef.current;
-        pendingStateRef.current = null;
         // Never let a delayed save from one employee be sent while another
-        // employee is the active session.
-        if (!authUserId || authUserId !== pending.userId) return false;
+        // employee is the active session. Do not dequeue their pending work.
+        if (!authUserId || authUserId !== pending.userId || sessionEpochRef.current !== sessionEpoch) return false;
+        pendingStateRef.current = null;
         setSaveStatus("saving");
         try {
           const response = await apiFetch("/api/data", {
@@ -2715,6 +2828,7 @@ export default function Home() {
             body: JSON.stringify({ state: pending.state, baseRevision: pending.baseRevision }),
           });
           const payload = await readResponseJson<{ revision?: unknown; error?: string }>(response);
+          if (sessionEpochRef.current !== sessionEpoch) return false;
           if (!response.ok) {
             const error = new Error(payload.error || "Não foi possível salvar os dados agora.") as Error & { status?: number };
             error.status = response.status;
@@ -2735,12 +2849,13 @@ export default function Home() {
           setLastSavedAt(new Date());
           setSaveStatus("saved");
         } catch (error) {
+          if (sessionEpochRef.current !== sessionEpoch) return false;
           if (authUserId === pending.userId && !pendingStateRef.current) pendingStateRef.current = pending;
           const status = (error as Error & { status?: number }).status;
           if (status === 401) {
             setAuthError("Sua sessão expirou. Entre novamente para sincronizar as alterações preservadas neste navegador.");
-            setHydrated(false);
-            setDataLoaded(false);
+            resetEmployeeWorkspace();
+            setIsAdmin(false);
             setAuthUser(null);
           }
           setSaveStatus(status === 409 ? "conflict" : typeof navigator !== "undefined" && !navigator.onLine ? "offline" : "error");
@@ -2755,13 +2870,19 @@ export default function Home() {
     } finally {
       if (flushLoopRef.current === loop) flushLoopRef.current = null;
     }
-  }, [authUserId]);
+  }, [authUserId, resetEmployeeWorkspace]);
 
   useEffect(() => {
     const retryWhenOnline = () => { void flushPendingState(); };
     window.addEventListener("online", retryWhenOnline);
     return () => window.removeEventListener("online", retryWhenOnline);
   }, [flushPendingState]);
+
+  useEffect(() => {
+    if (!authUserId || saveStatus !== "error") return;
+    const timer = window.setTimeout(() => { void flushPendingState(); }, 5_000);
+    return () => window.clearTimeout(timer);
+  }, [authUserId, flushPendingState, saveStatus]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2793,6 +2914,8 @@ export default function Home() {
           if (response.status === 401) {
             if (!cancelled) {
               setAuthError("Sua sessão expirou. Entre novamente para continuar.");
+              resetEmployeeWorkspace();
+              setIsAdmin(false);
               setAuthUser(null);
             }
             return;
@@ -2927,10 +3050,16 @@ export default function Home() {
       setFairInterest(typeof planner.fair?.interest === "string" ? planner.fair.interest : "");
       setFairChannel(planner.fair?.channel === "Áudio" ? "Áudio" : "WhatsApp");
       setFairTone(planner.fair?.tone === "direct" || planner.fair?.tone === "persuasive" ? planner.fair.tone : "welcoming");
-      setFairEventDate(typeof planner.fair?.eventDate === "string" && planner.fair.eventDate ? planner.fair.eventDate : "sábado, 29/08");
-      setFairEventTime(typeof planner.fair?.eventTime === "string" && planner.fair.eventTime ? planner.fair.eventTime : "das 9h às 17h");
+      const savedFairEventDate = typeof planner.fair?.eventDate === "string" ? planner.fair.eventDate.trim() : "";
+      const savedFairEventTime = typeof planner.fair?.eventTime === "string" ? planner.fair.eventTime.trim() : "";
+      const savedFairDiscount = typeof planner.fair?.discount === "string" ? planner.fair.discount.trim() : "";
+      const isLegacyFairCampaign = savedFairEventDate === "sábado, 29/08"
+        && savedFairEventTime === "das 9h às 17h"
+        && savedFairDiscount === "até 60% OFF";
+      setFairEventDate(isLegacyFairCampaign ? "" : savedFairEventDate);
+      setFairEventTime(isLegacyFairCampaign ? "" : savedFairEventTime);
       setFairCity(typeof planner.fair?.city === "string" && planner.fair.city ? planner.fair.city : "Araraquara");
-      setFairDiscount(typeof planner.fair?.discount === "string" && planner.fair.discount ? planner.fair.discount : "até 60% OFF");
+      setFairDiscount(isLegacyFairCampaign ? "" : savedFairDiscount);
       setFairEmojiMode(fairEmojiModes.some((mode) => mode.id === planner.fair?.emojiMode)
         ? planner.fair?.emojiMode as FairEmojiMode
         : planner.fair?.includeEmojis === false ? "none" : "mixed");
@@ -2944,7 +3073,7 @@ export default function Home() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [authUserId, dataLoadAttempt]);
+  }, [authUserId, dataLoadAttempt, resetEmployeeWorkspace]);
 
   useEffect(() => {
     const browserWindow = window as typeof window & {
@@ -2972,26 +3101,6 @@ export default function Home() {
       voiceUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
     };
   }, []);
-
-  useEffect(() => {
-    if (authUserId) return;
-    voiceCaptureAttemptRef.current += 1;
-    trainingRequestRef.current?.controller.abort();
-    trainingRequestRef.current = null;
-    speechRecognitionRef.current?.abort();
-    speechRecognitionRef.current = null;
-    const recorder = mediaRecorderRef.current;
-    if (recorder && recorder.state !== "inactive") recorder.stop();
-    mediaRecorderRef.current = null;
-    mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
-    mediaStreamRef.current = null;
-    const stateTimer = window.setTimeout(() => {
-      setVoiceCapturePending(false);
-      setTrainingBusy(false);
-      setIsRecording(false);
-    }, 0);
-    return () => window.clearTimeout(stateTimer);
-  }, [authUserId]);
 
   useEffect(() => {
     if (!isRecording) return;
@@ -3283,6 +3392,11 @@ export default function Home() {
     pending.push("modelo exato, composição e condição");
     return pending;
   }, [messageAudience, messageEnvironment, messageQuestion, providerProfile, providerQuestion, providerRegion, providerType]);
+  const fairDetailsReady = Boolean(fairEventDate.trim() && fairEventTime.trim() && fairCity.trim() && fairDiscount.trim());
+  const fairIncompleteMessage = "Preencha data, horário, cidade e condição do Feirão para gerar o convite.";
+  const [fairWeekday, ...fairDateParts] = fairEventDate.trim().split(",");
+  const fairDateLabel = fairDateParts.length ? fairDateParts.join(",").trim() : fairWeekday || "—";
+  const fairWeekdayLabel = fairDateParts.length ? fairWeekday : "Data";
   const fairMessageInput = useMemo(() => ({
     profileId: fairProfileId,
     clientName: fairClientName,
@@ -3297,13 +3411,17 @@ export default function Home() {
     emojiMode: fairEmojiMode,
     variation: fairVariation,
   }), [authUser?.displayName, fairChannel, fairCity, fairClientName, fairConsultantName, fairDiscount, fairEmojiMode, fairEventDate, fairEventTime, fairInterest, fairProfileId, fairTone, fairVariation]);
-  const fairMessage = useMemo(() => buildFairMessage(fairMessageInput), [fairMessageInput]);
+  const fairMessage = useMemo(() => fairDetailsReady ? buildFairMessage(fairMessageInput) : fairIncompleteMessage, [fairDetailsReady, fairIncompleteMessage, fairMessageInput]);
   const fairProfileMessages = useMemo(() => fairClientProfiles.map((profile) => ({
     ...profile,
-    message: buildFairMessage({ ...fairMessageInput, profileId: profile.id }),
-  })), [fairMessageInput]);
+    message: fairDetailsReady ? buildFairMessage({ ...fairMessageInput, profileId: profile.id }) : fairIncompleteMessage,
+  })), [fairDetailsReady, fairIncompleteMessage, fairMessageInput]);
 
   function randomizeFairMessage() {
+    if (!fairDetailsReady) {
+      showToast(fairIncompleteMessage, "error");
+      return;
+    }
     const randomValues = new Uint32Array(1);
     window.crypto.getRandomValues(randomValues);
     window.speechSynthesis?.cancel();
@@ -3391,59 +3509,6 @@ export default function Home() {
     }
   }
 
-  function resetEmployeeWorkspace() {
-    cancelTrainingRequest();
-    cancelPendingVoiceCapture();
-    if (isRecording) stopVoiceCapture();
-    window.speechSynthesis?.cancel();
-    if (voicePreviewUrl) discardVoiceDraft();
-    setDoneSales([]);
-    setDoneTiming([]);
-    setFollowUps(defaultFollowUps);
-    setDailyDone([]);
-    setMetrics(defaultMetrics);
-    setTrainingStats(emptyTrainingStats());
-    setFactoryItems(defaultFactoryItems);
-    setDrawerChecks({});
-    setMessageName("");
-    setMessageLine("Kit porta pronta");
-    setMessageEnvironment("");
-    setMessageObjective("apresentar uma opção de qualidade");
-    setMessageQuestion("");
-    setMessageChannel("WhatsApp");
-    setMessageTone("Consultivo");
-    setMessageProof({ company: true, quality: true, guarantee: true });
-    setTrainingMessages([]);
-    setTrainingFeedback(null);
-    setTrainingStarted(false);
-    setTrainingInputMode("voice");
-    setTrainingLevelFilter("Todos");
-    setTrainingInput("");
-    setVoiceTranscript("");
-    setVoiceInterim("");
-    setVoiceSeconds(0);
-    setVoiceStatus("Pronto para treinar por áudio");
-    setSpeakingMessageId(null);
-    setNewClient("");
-    setNewNext("");
-    setNewStatus("Aguardando retorno");
-    setNewPriority("Média");
-    setFilterStatus("Todos");
-    setFactoryWizardStep(0);
-    setFactoryWizardDraft(blankFactoryWizard());
-    setEditingFactoryItemId(null);
-    setSelectedCatalog(null);
-    setCatalogSearch("");
-    setCatalogFamily("Todas");
-    setBrand("dalcomad");
-    setActiveSalesStep(0);
-    setActiveTrainingScenario(0);
-    setActiveTimingStep(0);
-    setSaveStatus("idle");
-    setLastSavedAt(null);
-    revisionRef.current = null;
-  }
-
   async function handleAuthSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setAuthError("");
@@ -3468,6 +3533,7 @@ export default function Home() {
       pendingStateRef.current = null;
       if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current);
       saveTimerRef.current = null;
+      resetEmployeeWorkspace();
       setHydrated(false);
       setDataLoaded(false);
       setDataLoadError("");
@@ -3575,17 +3641,18 @@ export default function Home() {
       mediaRecorderRef.current = recorder;
       voiceChunksRef.current = [];
       recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) voiceChunksRef.current.push(event.data);
+        if (voiceCaptureAttemptRef.current === attempt && event.data.size > 0) voiceChunksRef.current.push(event.data);
       };
       recorder.onstop = () => {
+        stream.getTracks().forEach((track) => track.stop());
+        if (mediaStreamRef.current === stream) mediaStreamRef.current = null;
+        if (voiceCaptureAttemptRef.current !== attempt) return;
         const blob = new Blob(voiceChunksRef.current, { type: recorder.mimeType || "audio/webm" });
         if (blob.size > 0) {
           const url = URL.createObjectURL(blob);
           voiceUrlsRef.current.push(url);
           setVoicePreviewUrl(url);
         }
-        mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
-        mediaStreamRef.current = null;
       };
       recorder.start();
       setVoiceCapturePending(false);
@@ -3602,6 +3669,7 @@ export default function Home() {
         recognition.continuous = true;
         recognition.interimResults = true;
         recognition.onresult = (event) => {
+          if (voiceCaptureAttemptRef.current !== attempt) return;
           const finalParts = [...voiceFinalPartsRef.current];
           const interimParts: string[] = [];
           for (let index = event.resultIndex; index < event.results.length; index += 1) {
@@ -3620,6 +3688,7 @@ export default function Home() {
           setVoiceStatus("Transcrevendo em tempo real...");
         };
         recognition.onerror = (event) => {
+          if (voiceCaptureAttemptRef.current !== attempt) return;
           if (event.error === "not-allowed" || event.error === "service-not-allowed") {
             setVoiceStatus("Permissão de voz não liberada; o áudio continua gravado e você pode digitar a transcrição.");
             showToast("Permita o microfone para transcrever sua fala", "error");
@@ -3628,7 +3697,9 @@ export default function Home() {
           }
         };
         recognition.onend = () => {
-          speechRecognitionRef.current = null;
+          if (voiceCaptureAttemptRef.current === attempt && speechRecognitionRef.current === recognition) {
+            speechRecognitionRef.current = null;
+          }
         };
         speechRecognitionRef.current = recognition;
         try {
@@ -3641,8 +3712,10 @@ export default function Home() {
       if (voiceCaptureAttemptRef.current !== attempt) return;
       mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
       mediaStreamRef.current = null;
+      setVoiceSupported(false);
+      setTrainingInputMode("text");
       setVoiceStatus("Não foi possível acessar o microfone. Verifique a permissão do navegador.");
-      showToast("Microfone não disponível neste dispositivo", "error");
+      showToast("Microfone não disponível; o modo texto foi ativado", "error");
     } finally {
       if (voiceCaptureAttemptRef.current === attempt) setVoiceCapturePending(false);
     }
@@ -3699,7 +3772,7 @@ export default function Home() {
     setTrainingMessages([{ role: "customer", text: scenario.opening }]);
     setTrainingFeedback(null);
     setTrainingInput("");
-    setTrainingInputMode("voice");
+    setTrainingInputMode(voiceSupported ? "voice" : "text");
     setVoiceTranscript("");
     setVoiceInterim("");
     setVoiceStatus("Pronto para treinar por áudio");
@@ -3707,6 +3780,7 @@ export default function Home() {
   }
 
   function selectTrainingInputMode(mode: "voice" | "text") {
+    if (mode === "voice" && !voiceSupported) return;
     cancelPendingVoiceCapture();
     if (isRecording) stopVoiceCapture();
     setTrainingInputMode(mode);
@@ -3770,9 +3844,22 @@ export default function Home() {
     setTrainingStarted(false);
   }
 
-  function cancelTrainingRequest() {
+  function cancelTrainingRequest(options: { restoreDraft?: boolean } = {}) {
     const activeRequest = trainingRequestRef.current;
-    if (activeRequest) activeRequest.controller.abort();
+    if (activeRequest) {
+      activeRequest.controller.abort();
+      if (options.restoreDraft) {
+        setTrainingMessages((current) => {
+          const lastMessage = current.at(-1);
+          return lastMessage?.role === "seller" && lastMessage.text === activeRequest.sellerMessage
+            ? current.slice(0, -1)
+            : current;
+        });
+        setTrainingInput(activeRequest.sellerMessage);
+        if (activeRequest.audioUrl) setVoicePreviewUrl(activeRequest.audioUrl);
+        setVoiceStatus("Resposta recuperada — envie quando voltar ao treino");
+      }
+    }
     trainingRequestRef.current = null;
     setTrainingBusy(false);
   }
@@ -3793,7 +3880,7 @@ export default function Home() {
     const requestId = trainingRequestIdRef.current + 1;
     trainingRequestIdRef.current = requestId;
     const requestController = new AbortController();
-    trainingRequestRef.current = { id: requestId, controller: requestController };
+    trainingRequestRef.current = { id: requestId, controller: requestController, sellerMessage, audioUrl: voicePreviewUrl || undefined };
     setTrainingBusy(true);
 
     try {
@@ -3853,7 +3940,7 @@ export default function Home() {
       showToast("Preencha cliente e próxima ação", "error");
       return;
     }
-    setFollowUps((current) => [{ id: `local-${Date.now()}`, client: newClient.trim(), status: newStatus, next: newNext.trim(), priority: newPriority, done: false }, ...current]);
+    setFollowUps((current) => [{ id: `local-${Date.now()}`, client: newClient.trim(), status: newStatus, next: newNext.trim(), priority: newPriority, done: false }, ...current].slice(0, 240));
     setNewClient("");
     setNewNext("");
     showToast("Pendência adicionada à sua conta");
@@ -3867,7 +3954,7 @@ export default function Home() {
 
   function navigate(next: Section) {
     if (next !== "training") {
-      cancelTrainingRequest();
+      cancelTrainingRequest({ restoreDraft: true });
       cancelPendingVoiceCapture();
     }
     if (isRecording) stopVoiceCapture();
@@ -4137,6 +4224,7 @@ export default function Home() {
           <div className="topbar-actions">
             <span className={`save-status ${saveStatus}`} role="status" aria-live="polite"><i />{saveStatusLabel}</span>
             {saveStatus === "conflict" && <button className="sync-reload-button" type="button" onClick={reloadServerState}>Recarregar dados salvos</button>}
+            {(saveStatus === "error" || saveStatus === "offline") && <button className="sync-reload-button" type="button" onClick={() => { void flushPendingState(); }}>Tentar sincronizar</button>}
             <span className="date-chip">{today}</span>
             <div className="user-area">
               <span className="user-chip">{authUser.displayName.slice(0, 1).toUpperCase()}</span>
@@ -4194,7 +4282,7 @@ export default function Home() {
                 <div className="visual-orbit orbit-one" />
                 <div className="visual-orbit orbit-two" />
                 <div className="visual-core"><span>MP</span><small>vendas</small></div>
-                <div className="visual-tag tag-top">MARCAS <b>08</b></div>
+                <div className="visual-tag tag-top">MARCAS <b>{String(studiedBrandCount).padStart(2, "0")}</b></div>
                 <div className="visual-tag tag-bottom">ORÇAMENTOS <b>{portfolioCount}</b></div>
                 <div className="visual-line line-one" /><div className="visual-line line-two" />
               </div>
@@ -4233,7 +4321,7 @@ export default function Home() {
             </section>
 
             <section className="catalog-strip">
-              <div><span className="section-kicker">BASE DE PRODUTO</span><h2>Oito marcas. Uma lógica de indicação.</h2><p>Comece pelo problema do cliente; use a marca como solução, não como lista infinita.</p></div>
+              <div><span className="section-kicker">BASE DE PRODUTO</span><h2>{studiedBrandCount} marcas. Uma lógica de indicação.</h2><p>Comece pelo problema do cliente; use a marca como solução, não como lista infinita.</p></div>
               <div className="brand-pills">{(Object.keys(brandData) as BrandId[]).map((id) => <button key={id} style={{ "--brand-accent": brandData[id].accent } as React.CSSProperties} onClick={() => { selectBrand(id); navigate("catalog"); }}><span className="pill-dot" />{brandData[id].short}<small>{brandData[id].descriptor}</small></button>)}</div>
             </section>
           </div>
@@ -4333,7 +4421,7 @@ export default function Home() {
                         <div ref={trainingChatEndRef} aria-hidden="true" />
                       </div>
                       <div className="training-composer-shell">
-                        <div className="training-mode-switch" aria-label="Modo de resposta"><button type="button" className={trainingInputMode === "voice" ? "active" : ""} onClick={() => selectTrainingInputMode("voice")} aria-pressed={trainingInputMode === "voice"} disabled={trainingBusy || voiceCapturePending}>◉ Falar</button><button type="button" className={trainingInputMode === "text" ? "active" : ""} onClick={() => selectTrainingInputMode("text")} aria-pressed={trainingInputMode === "text"} disabled={trainingBusy || voiceCapturePending}>Aa Digitar</button></div>
+                        <div className="training-mode-switch" aria-label="Modo de resposta"><button type="button" className={trainingInputMode === "voice" ? "active" : ""} onClick={() => selectTrainingInputMode("voice")} aria-pressed={trainingInputMode === "voice"} disabled={trainingBusy || voiceCapturePending || !voiceSupported}>◉ Falar</button><button type="button" className={trainingInputMode === "text" ? "active" : ""} onClick={() => selectTrainingInputMode("text")} aria-pressed={trainingInputMode === "text"} disabled={trainingBusy || voiceCapturePending}>Aa Digitar</button></div>
                         {trainingInputMode === "voice" && <div className="voice-control-panel"><button type="button" className={`voice-record-button ${isRecording ? "recording" : ""}`} onClick={isRecording ? stopVoiceCapture : startVoiceCapture} disabled={trainingBusy || voiceCapturePending} aria-pressed={isRecording}><span className="voice-mic">{isRecording ? "■" : "●"}</span><span>{voiceCapturePending ? "Aguardando microfone…" : isRecording ? `Parar gravação · ${formatVoiceDuration(voiceSeconds)}` : "Gravar resposta"}</span></button><div className="voice-control-copy"><strong>{voiceStatus}</strong><small>{speechSupported ? "A fala é transcrita no navegador e pode ser editada antes do envio." : "Seu navegador não transcreve automaticamente; você ainda pode gravar e digitar a resposta."}</small></div>{voicePreviewUrl && !isRecording && <audio className="voice-preview" controls preload="metadata" src={voicePreviewUrl} aria-label="Prévia da sua resposta gravada" />} {(voicePreviewUrl || voiceTranscript) && !isRecording && <button type="button" className="voice-discard" onClick={discardVoiceDraft}>Refazer <span>↻</span></button>}</div>}
                         <form className="training-composer" onSubmit={sendTrainingMessage}><textarea value={trainingInput} onChange={(event) => setTrainingInput(event.target.value)} placeholder={trainingInputMode === "voice" ? "Sua transcrição aparece aqui. Revise antes de enviar..." : "Digite como você responderia ao cliente..."} aria-label="Sua resposta para o cliente" disabled={trainingBusy || isRecording || voiceCapturePending} rows={trainingInputMode === "voice" ? 2 : 1} />{voiceInterim && <span className="voice-interim">ouvindo: {voiceInterim}</span>}<button className="button dark" type="submit" disabled={trainingBusy || isRecording || voiceCapturePending || !trainingInput.trim()}>{trainingBusy ? "Analisando" : "Enviar resposta"} <span>↗</span></button></form>
                       </div>
@@ -4418,7 +4506,7 @@ export default function Home() {
                 <h1>Convide com atenção.<br /><em>Sem parecer mensagem em massa.</em></h1>
                 <p>Escolha o contexto do cliente, personalize o interesse e copie uma mensagem acolhedora para WhatsApp ou um roteiro natural para áudio.</p>
               </div>
-              <div className="fair-date-card"><strong>{(fairEventDate.trim() || "sábado, 29/08").replace(/^sábado,\s*/i, "")}</strong><span>{(fairEventDate.trim() || "sábado, 29/08").split(",")[0] || "Feirão"}</span><small>{fairEventTime.trim() || "das 9h às 17h"}</small></div>
+              <div className="fair-date-card"><strong>{fairDateLabel}</strong><span>{fairWeekdayLabel}</span><small>{fairEventTime.trim() || "Horário a confirmar"}</small></div>
             </div>
 
             <section className="panel fair-promise">
@@ -4450,29 +4538,31 @@ export default function Home() {
                 <div className="fair-event-settings">
                   <div><span className="section-kicker">DADOS DO FEIRÃO</span><small>Edite quando houver uma nova campanha.</small></div>
                   <div className="fair-event-grid">
-                    <label><span>Data</span><input value={fairEventDate} onChange={(event) => setFairEventDate(event.target.value)} placeholder="Ex.: sábado, 29/08" /></label>
+                    <label><span>Data</span><input value={fairEventDate} onChange={(event) => setFairEventDate(event.target.value)} placeholder="Ex.: sábado, DD/MM" /></label>
                     <label><span>Horário</span><input value={fairEventTime} onChange={(event) => setFairEventTime(event.target.value)} placeholder="Ex.: das 9h às 17h" /></label>
                     <label><span>Cidade</span><input value={fairCity} onChange={(event) => setFairCity(event.target.value)} placeholder="Ex.: Araraquara" /></label>
-                    <label><span>Condição principal</span><input value={fairDiscount} onChange={(event) => setFairDiscount(event.target.value)} placeholder="Ex.: até 60% OFF" /></label>
+                    <label><span>Condição principal</span><input value={fairDiscount} onChange={(event) => setFairDiscount(event.target.value)} placeholder="Ex.: até XX% OFF" /></label>
                   </div>
                 </div>
+
+                {!fairDetailsReady && <div className="message-pending" role="status"><span className="mini-label">DADOS OBRIGATÓRIOS PENDENTES</span><p>{fairIncompleteMessage}</p></div>}
 
                 <div className={`fair-emoji-control ${fairChannel === "Áudio" ? "disabled" : ""}`}><div><span className="mini-label">EMOJIS NA MENSAGEM</span><small>{fairChannel === "Áudio" ? "O roteiro de áudio fica limpo automaticamente." : fairEmojiModes.find((mode) => mode.id === fairEmojiMode)?.description}</small></div><div className="fair-emoji-options" role="group" aria-label="Quantidade de emojis">{fairEmojiModes.map((mode) => <button key={mode.id} type="button" disabled={fairChannel === "Áudio"} className={fairEmojiMode === mode.id ? "active" : ""} aria-pressed={fairEmojiMode === mode.id} onClick={() => setFairEmojiMode(mode.id as FairEmojiMode)}>{mode.label}</button>)}</div></div>
               </section>
 
               <section className="panel fair-preview-panel">
-                <div className="message-preview-head"><div><span className="section-kicker">CONVITE PRONTO</span><h2>{fairChannel === "Áudio" ? "Roteiro natural para falar" : "Mensagem pronta para enviar"}</h2></div><div className="message-preview-actions"><button className="copy-button" type="button" onClick={() => speakText(fairMessage, "fair-message")}>{speakingMessageId === "fair-message" ? "Parar áudio" : "Ouvir"} <span>{speakingMessageId === "fair-message" ? "■" : "▶"}</span></button><button className="copy-button" type="button" onClick={() => copyMessage(fairMessage, "Convite do Feirão")}>Copiar <span>⧉</span></button></div></div>
+                <div className="message-preview-head"><div><span className="section-kicker">{fairDetailsReady ? "CONVITE PRONTO" : "DADOS PENDENTES"}</span><h2>{fairDetailsReady ? (fairChannel === "Áudio" ? "Roteiro natural para falar" : "Mensagem pronta para enviar") : "Complete os dados do Feirão"}</h2></div><div className="message-preview-actions"><button className="copy-button" type="button" disabled={!fairDetailsReady} onClick={() => speakText(fairMessage, "fair-message")}>{speakingMessageId === "fair-message" ? "Parar áudio" : "Ouvir"} <span>{speakingMessageId === "fair-message" ? "■" : "▶"}</span></button><button className="copy-button" type="button" disabled={!fairDetailsReady} onClick={() => copyMessage(fairMessage, "Convite do Feirão")}>Copiar <span>⧉</span></button></div></div>
                 <div key={fairVariation} className={`fair-preview-bubble ${fairChannel === "Áudio" ? "audio" : ""}`} aria-live="polite"><div className="preview-label"><span>{fairChannel.toUpperCase()} · {fairClientProfiles.find((profile) => profile.id === fairProfileId)?.shortLabel.toUpperCase()}</span><span>{fairToneOptions.find((tone) => tone.id === fairTone)?.label.toUpperCase()}</span></div><p>{fairMessage}</p></div>
-                <div className="fair-randomizer"><div><span className="mini-label">VARIAÇÃO INSTANTÂNEA</span><p>Troque a redação sem alterar cliente, produto ou dados do Feirão.</p></div><button className="fair-randomize-button" type="button" onClick={randomizeFairMessage} aria-label="Gerar outra versão do convite"><span aria-hidden="true">↻</span><span><strong>Gerar outra versão</strong><small>Versão {fairVariation + 1} de {FAIR_VARIATION_COUNT}</small></span></button></div>
+                <div className="fair-randomizer"><div><span className="mini-label">VARIAÇÃO INSTANTÂNEA</span><p>Troque a redação sem alterar cliente, produto ou dados do Feirão.</p></div><button className="fair-randomize-button" type="button" disabled={!fairDetailsReady} onClick={randomizeFairMessage} aria-label="Gerar outra versão do convite"><span aria-hidden="true">↻</span><span><strong>Gerar outra versão</strong><small>Versão {fairVariation + 1} de {FAIR_VARIATION_COUNT}</small></span></button></div>
                 <div className="message-next"><span className="mini-label">POR QUE FUNCIONA</span><p>{fairClientProfiles.find((profile) => profile.id === fairProfileId)?.description} O convite apresenta a condição com clareza e termina com uma pergunta fácil de responder.</p></div>
                 <div className="fair-checklist"><span className="mini-label">ANTES DE ENVIAR</span><div><span>✓ confirme nome e interesse</span><span>✓ confira data e horário</span><span>✓ mantenha “até” no desconto</span><span>✓ envie sem cobrar resposta</span></div></div>
-                <button className="button dark full" type="button" onClick={() => copyMessage(fairMessage, fairChannel === "Áudio" ? "Roteiro do Feirão" : "Convite do Feirão")}>{fairChannel === "Áudio" ? "Copiar roteiro de áudio" : "Copiar para o WhatsApp"} <span>⧉</span></button>
+                <button className="button dark full" type="button" disabled={!fairDetailsReady} onClick={() => copyMessage(fairMessage, fairChannel === "Áudio" ? "Roteiro do Feirão" : "Convite do Feirão")}>{fairChannel === "Áudio" ? "Copiar roteiro de áudio" : "Copiar para o WhatsApp"} <span>⧉</span></button>
               </section>
             </div>
 
             <section className="fair-library">
-              <div className="section-intro-mini"><span className="section-kicker">MODELOS POR TIPO DE CLIENTE</span><h2>Sete convites prontos, já com os dados preenchidos.</h2><p>Os modelos abaixo acompanham o nome, o interesse, o canal, o tom e as informações do Feirão escolhidas acima.</p></div>
-              <div className="fair-template-grid">{fairProfileMessages.map((item) => <article key={item.id} className={fairProfileId === item.id ? "active" : ""}><div className="fair-template-head"><span>{item.shortLabel}</span><button type="button" onClick={() => setFairProfileId(item.id as FairProfileId)}>Usar modelo <span>→</span></button></div><strong>{item.label}</strong><p>{item.message}</p><button className="copy-button" type="button" onClick={() => copyMessage(item.message, `Convite ${item.shortLabel}`)}>Copiar convite <span>⧉</span></button></article>)}</div>
+              <div className="section-intro-mini"><span className="section-kicker">MODELOS POR TIPO DE CLIENTE</span><h2>{fairDetailsReady ? "Sete convites prontos, já com os dados preenchidos." : "Complete os dados para liberar os sete convites."}</h2><p>Os modelos abaixo acompanham o nome, o interesse, o canal, o tom e as informações do Feirão escolhidas acima.</p></div>
+              <div className="fair-template-grid">{fairProfileMessages.map((item) => <article key={item.id} className={fairProfileId === item.id ? "active" : ""}><div className="fair-template-head"><span>{item.shortLabel}</span><button type="button" onClick={() => setFairProfileId(item.id as FairProfileId)}>Usar modelo <span>→</span></button></div><strong>{item.label}</strong><p>{item.message}</p><button className="copy-button" type="button" disabled={!fairDetailsReady} onClick={() => copyMessage(item.message, `Convite ${item.shortLabel}`)}>Copiar convite <span>⧉</span></button></article>)}</div>
             </section>
           </div>
         )}

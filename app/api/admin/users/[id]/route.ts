@@ -6,6 +6,7 @@ import { hashPassword, userPayload } from "../../../auth/_lib";
 import { parseEmployeeProfile } from "../_validation";
 import { rejectUntrustedMutation } from "../../../_security";
 import { normalizeEmployeeState, summarizeEmployeeState } from "../../../data/state-contract.mjs";
+import { readBoundedAuthJson } from "../../../auth/_request-guard";
 
 function jsonResponse(body: Record<string, unknown>, status = 200) {
   return Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
@@ -80,14 +81,9 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     const userId = await readUserId(context);
     if (!userId) return adminNotFound();
 
-    let body: unknown;
-    try {
-      body = await request.json() as unknown;
-    } catch {
-      return jsonResponse({ error: "Não foi possível ler os dados do funcionário." }, 400);
-    }
-
-    const parsed = parseEmployeeProfile(body, { passwordRequired: false });
+    const parsedBody = await readBoundedAuthJson(request, "Não foi possível ler os dados do funcionário.");
+    if ("response" in parsedBody) return parsedBody.response;
+    const parsed = parseEmployeeProfile(parsedBody.value, { passwordRequired: false });
     if (!parsed.value) return jsonResponse({ error: parsed.error }, 400);
 
     const db = getDb();

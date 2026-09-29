@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { employeeSessions, employeeUsers } from "../../../../db/schema";
 import { rejectUntrustedMutation } from "../../_security";
+import { readBoundedAuthJson } from "../_request-guard";
 import {
   createSession,
   getSessionUser,
@@ -28,18 +29,9 @@ export async function PATCH(request: Request) {
     const sessionUser = await getSessionUser(request);
     if (!sessionUser) return jsonResponse({ error: "Sessão expirada." }, 401);
 
-    let body: unknown;
-    try {
-      body = await request.json() as unknown;
-    } catch {
-      return jsonResponse({ error: "Não foi possível ler os dados do perfil." }, 400);
-    }
-
-    if (!body || typeof body !== "object" || Array.isArray(body)) {
-      return jsonResponse({ error: "Não foi possível ler os dados do perfil." }, 400);
-    }
-
-    const source = body as Record<string, unknown>;
+    const parsedBody = await readBoundedAuthJson(request, "Não foi possível ler os dados do perfil.");
+    if ("response" in parsedBody) return parsedBody.response;
+    const source = parsedBody.value;
     const displayName = typeof source.displayName === "string" ? source.displayName.trim() : "";
     const username = typeof source.username === "string" ? source.username.trim() : "";
     const usernameNormalized = normalizeUsername(username);

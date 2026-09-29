@@ -7,22 +7,21 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Baixar código
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Configurar Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -30,27 +29,41 @@ jobs:
       - name: Instalar dependências
         run: npm ci
 
-      - name: Verificar codigo
+      - name: Auditar dependências
+        run: npm audit --audit-level=high
+
+      - name: Verificar código
         run: npm run lint
 
-      - name: Executar testes
-        run: npm test
+      - name: Compilar aplicação
+        run: npm run build
+
+      - name: Executar testes de contrato
+        run: SITES_TEST_SKIP_BUILD=1 npm test
+
+      - name: Executar testes de ponta a ponta
+        run: npm run test:e2e
 
       - name: Gerar versão pública
         run: npm run build:github
 
       - name: Preparar artefato do Pages
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: ./dist-pages
 
   deploy:
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Publicar no GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

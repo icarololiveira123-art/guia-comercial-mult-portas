@@ -59,7 +59,7 @@ async function handleRegister(request: Request) {
   if (password.length < 8 || password.length > 120) {
     return Response.json({ error: "A senha deve ter pelo menos 8 caracteres." }, { status: 400 });
   }
-  const retryAfter = consumeRegistrationQuota(request);
+  const retryAfter = consumeRegistrationQuota(request, usernameNormalized);
   if (retryAfter !== null) return rateLimitResponse(retryAfter);
 
   const db = await getDb();

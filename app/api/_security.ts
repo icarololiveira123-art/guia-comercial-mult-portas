@@ -47,6 +47,8 @@ export function withApiSecurityHeaders(response: Response) {
   headers.set("X-Content-Type-Options", "nosniff");
   headers.set("X-Frame-Options", "DENY");
   headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  headers.set("Permissions-Policy", "camera=(), geolocation=(), microphone=(self)");
   headers.set("X-Robots-Tag", "noindex, nofollow, noarchive");
   return new Response(response.body, {
     status: response.status,

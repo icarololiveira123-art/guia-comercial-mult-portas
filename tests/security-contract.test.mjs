@@ -49,6 +49,8 @@ test("API responses receive defensive browser headers", async () => {
   assert.equal(response.headers.get("x-robots-tag"), "noindex, nofollow, noarchive");
   assert.equal(response.headers.get("referrer-policy"), "strict-origin-when-cross-origin");
   assert.equal(response.headers.get("x-frame-options"), "DENY");
+  assert.equal(response.headers.get("strict-transport-security"), "max-age=31536000; includeSubDomains");
+  assert.equal(response.headers.get("permissions-policy"), "camera=(), geolocation=(), microphone=(self)");
 });
 
 test("HTML and robots responses are protected from indexing and framing", async () => {

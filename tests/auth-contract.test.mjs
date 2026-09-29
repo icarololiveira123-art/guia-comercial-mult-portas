@@ -177,6 +177,10 @@ test("admin profile management exposes protected create, edit and delete routes"
   assert.match(itemRoute, /employeeSessions/);
   assert.match(itemRoute, /employeeData/);
   assert.match(itemRoute, /getAdminSession/);
+  assert.match(collectionRoute, /readBoundedAuthJson\(request,/);
+  assert.match(itemRoute, /readBoundedAuthJson\(request,/);
+  assert.doesNotMatch(collectionRoute, /await request\.json\(\)/);
+  assert.doesNotMatch(itemRoute, /await request\.json\(\)/);
   assert.match(pageSource, /detailsRequestRef/);
   assert.match(pageSource, /detailsRequestRef\.current\?\.id !== requestId/);
   assert.match(pageSource, /detailsError \? \(/);
@@ -212,9 +216,11 @@ test("employees can securely edit their own profile without reloading account da
   assert.match(pageSource, /await flushPendingState\(\)/);
   assert.match(pageSource, /apiFetch\("\/api\/auth\/profile"/);
   assert.match(pageSource, /const authUserId = authUser\?\.id \?\? null/);
-  assert.match(pageSource, /\}, \[authUserId\]\);/);
+  assert.match(pageSource, /\}, \[authUserId, resetEmployeeWorkspace\]\);/);
   assert.match(profileRoute, /getSessionUser/);
   assert.match(profileRoute, /rejectUntrustedMutation/);
+  assert.match(profileRoute, /readBoundedAuthJson\(request,/);
+  assert.doesNotMatch(profileRoute, /await request\.json\(\)/);
   assert.match(profileRoute, /verifyPassword/);
   assert.match(profileRoute, /normalizeUsername/);
   assert.match(profileRoute, /employeeSessions/);
@@ -306,6 +312,8 @@ test("failed loads and logout cannot silently overwrite or discard employee data
   assert.match(pageSource, /keepalive: true/);
   assert.match(pageSource, /if \(!\(await flushPendingState\(\)\)\)/);
   assert.match(pageSource, /if \(!response\.ok \|\| data\.ok !== true\)/);
+  assert.match(pageSource, /if \(!authUserId \|\| saveStatus !== "error"\) return;\s*const timer = window\.setTimeout\(\(\) => \{ void flushPendingState\(\); \}, 5_000\);\s*return \(\) => window\.clearTimeout\(timer\);/s);
+  assert.match(pageSource, /saveStatus === "error" \|\| saveStatus === "offline"[\s\S]{0,220}Tentar sincronizar/);
   assert.match(dataSource, /baseRevision/);
   assert.match(dataSource, /status[^\n]*409|, 409\)/);
   assert.match(dataSource, /and\(eq\(employeeData\.userId, user\.id\), eq\(employeeData\.updatedAt, baseRevision\)\)/);
@@ -314,6 +322,61 @@ test("failed loads and logout cannot silently overwrite or discard employee data
   assert.match(dataSource, /new Date\(\)\.toISOString\(\).*crypto\.randomUUID\(\)/s);
   assert.match(dataSource, /dados salvos estão temporariamente indisponíveis/);
   assert.doesNotMatch(dataSource, /catch\s*\{\s*return emptyResponse\(\);\s*\}/s);
+});
+
+test("session changes clear every employee workspace before another account can use it", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const pageSource = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const resetStart = pageSource.indexOf("const resetEmployeeWorkspace = useCallback");
+  const resetEnd = pageSource.indexOf("const flushPendingState = useCallback", resetStart);
+  assert.ok(resetStart >= 0 && resetEnd > resetStart, "workspace reset callback must remain defined before persistence");
+  const resetSource = pageSource.slice(resetStart, resetEnd);
+
+  for (const expected of [
+    /trainingRequestRef\.current\?\.controller\.abort\(\)/,
+    /mediaStreamRef\.current\?\.getTracks\(\)\.forEach/,
+    /voiceUrlsRef\.current\.forEach\(\(url\) => URL\.revokeObjectURL\(url\)\)/,
+    /setFollowUps\(\[\]\)/,
+    /setTrainingMessages\(\[\]\)/,
+    /setFactoryItems\(\[\]\)/,
+    /currentPassword: ""/,
+    /newPassword: ""/,
+    /confirmPassword: ""/,
+    /setSection\("overview"\)/,
+    /revisionRef\.current = null/,
+  ]) assert.match(resetSource, expected);
+
+  assert.match(pageSource, /Sua sessão expirou\. Entre novamente para sincronizar[\s\S]{0,260}resetEmployeeWorkspace\(\);[\s\S]{0,120}setAuthUser\(null\)/);
+  assert.match(pageSource, /Sua sessão expirou\. Entre novamente para continuar\.[\s\S]{0,220}resetEmployeeWorkspace\(\);[\s\S]{0,120}setAuthUser\(null\)/);
+  assert.match(pageSource, /pendingStateRef\.current = null;[\s\S]{0,220}resetEmployeeWorkspace\(\);[\s\S]{0,220}setAuthUser\(/);
+});
+
+test("an in-flight save from a prior session cannot dequeue or overwrite the next account's changes", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const pageSource = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const flushStart = pageSource.indexOf("const flushPendingState = useCallback");
+  const flushEnd = pageSource.indexOf("useEffect(() => {", flushStart);
+  assert.ok(flushStart >= 0 && flushEnd > flushStart);
+  const flushSource = pageSource.slice(flushStart, flushEnd);
+
+  assert.match(pageSource, /const resetEmployeeWorkspace = useCallback\(\(\) => \{[\s\S]{0,250}sessionEpochRef\.current \+= 1;/);
+  assert.match(flushSource, /while \(flushLoopRef\.current\) await flushLoopRef\.current;/);
+  assert.match(flushSource, /const pending = pendingStateRef\.current;[\s\S]{0,340}authUserId !== pending\.userId \|\| sessionEpochRef\.current !== sessionEpoch\) return false;\s*pendingStateRef\.current = null;/);
+  assert.match(flushSource, /const payload = await readResponseJson<[\s\S]{0,180}if \(sessionEpochRef\.current !== sessionEpoch\) return false;/);
+  assert.match(flushSource, /catch \(error\) \{\s*if \(sessionEpochRef\.current !== sessionEpoch\) return false;/);
+});
+
+test("authentication quotas are account-aware and a successful login keeps the shared IP budget", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const guardSource = await readFile(new URL("../app/api/auth/_request-guard.ts", import.meta.url), "utf8");
+  const registerSource = await readFile(new URL("../app/api/auth/register/route.ts", import.meta.url), "utf8");
+
+  assert.match(guardSource, /return \[`login:ip:\$\{ip\}`, `login:user:\$\{normalizedUsername\}`\]/);
+  assert.doesNotMatch(guardSource, /login:user:\$\{ip\}/);
+  assert.match(guardSource, /register:ip:\$\{requestIp\(request\)\}/);
+  assert.match(guardSource, /register:user:\$\{normalizedUsername\}/);
+  assert.match(guardSource, /keys\.slice\(1\)\.forEach\(\(key\) => authAttempts\.delete\(key\)\)/);
+  assert.match(registerSource, /consumeRegistrationQuota\(request, usernameNormalized\)/);
 });
 
 test("training requests and pending microphone access cannot update a stale session", async () => {
@@ -325,7 +388,16 @@ test("training requests and pending microphone access cannot update a stale sess
   assert.match(pageSource, /cancelTrainingRequest\(\);\s*cancelPendingVoiceCapture\(\);\s*if \(isRecording\) stopVoiceCapture\(\);/s);
   assert.match(pageSource, /voiceCaptureAttemptRef\.current !== attempt/);
   assert.match(pageSource, /stream\.getTracks\(\)\.forEach\(\(track\) => track\.stop\(\)\)/);
-  assert.match(pageSource, /if \(authUserId\) return;/);
+  assert.match(pageSource, /recorder\.onstop = \(\) => \{[\s\S]{0,240}if \(voiceCaptureAttemptRef\.current !== attempt\) return;/);
+  assert.match(pageSource, /recognition\.onresult = \(event\) => \{\s*if \(voiceCaptureAttemptRef\.current !== attempt\) return;/);
+  assert.match(pageSource, /cancelTrainingRequest\(\{ restoreDraft: true \}\)/);
+  assert.match(pageSource, /lastMessage\?\.role === "seller" && lastMessage\.text === activeRequest\.sellerMessage[\s\S]{0,100}current\.slice\(0, -1\)/);
+  assert.match(pageSource, /setTrainingInput\(activeRequest\.sellerMessage\)/);
+  assert.match(pageSource, /trainingRequestRef\.current = \{ id: requestId, controller: requestController, sellerMessage, audioUrl:/);
+  assert.match(pageSource, /setVoiceSupported\(false\);\s*setTrainingInputMode\("text"\);/);
+  assert.match(pageSource, /setTrainingInputMode\(voiceSupported \? "voice" : "text"\)/);
+  assert.match(pageSource, /if \(mode === "voice" && !voiceSupported\) return;/);
+  assert.match(pageSource, /Microfone não disponível; o modo texto foi ativado/);
 });
 
 test("coach endpoint rejects unauthenticated requests with JSON", async () => {

@@ -12,6 +12,11 @@ export const GUIDE_STATE_VERSION = 4;
 const MAX_COLLECTION = 240;
 const SKILL_IDS = ["acolhimento", "diagnostico", "precisao", "valor", "proximoPasso"];
 const TOTAL_TRAINING_SCENARIOS = 16;
+const LEGACY_FAIR_DEFAULTS = {
+  eventDate: "sábado, 29/08",
+  eventTime: "das 9h às 17h",
+  discount: "até 60% OFF",
+};
 
 function isRecord(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -93,7 +98,9 @@ function normalizeTraining(value) {
 
 function normalizeFollowUps(value) {
   if (!Array.isArray(value)) return [];
-  return value.filter(isRecord).slice(-MAX_COLLECTION).map((item, index) => ({
+  // The UI keeps newest follow-ups first. Preserve those when applying the
+  // collection bound instead of silently discarding the newest entry.
+  return value.filter(isRecord).slice(0, MAX_COLLECTION).map((item, index) => ({
     id: cleanString(item.id, 80) || `registro-${index + 1}`,
     client: cleanString(item.client, 160),
     status: cleanString(item.status, 80) || "Aguardando retorno",
@@ -108,6 +115,12 @@ function normalizeMessages(value) {
   const proof = isRecord(source.proof) ? source.proof : {};
   const provider = isRecord(source.provider) ? source.provider : {};
   const fair = isRecord(source.fair) ? source.fair : {};
+  const fairEventDate = cleanString(fair.eventDate, 80);
+  const fairEventTime = cleanString(fair.eventTime, 80);
+  const fairDiscount = cleanString(fair.discount, 80);
+  const isLegacyFairCampaign = fairEventDate === LEGACY_FAIR_DEFAULTS.eventDate
+    && fairEventTime === LEGACY_FAIR_DEFAULTS.eventTime
+    && fairDiscount === LEGACY_FAIR_DEFAULTS.discount;
   const fairEmojiMode = ["mixed", "none", "light", "balanced", "expressive"].includes(fair.emojiMode)
     ? fair.emojiMode
     : fair.includeEmojis === false ? "none" : "mixed";
@@ -140,10 +153,10 @@ function normalizeMessages(value) {
       interest: cleanString(fair.interest, 160),
       channel: fair.channel === "Áudio" ? "Áudio" : "WhatsApp",
       tone: ["welcoming", "direct", "persuasive"].includes(fair.tone) ? fair.tone : "welcoming",
-      eventDate: cleanString(fair.eventDate, 80) || "sábado, 29/08",
-      eventTime: cleanString(fair.eventTime, 80) || "das 9h às 17h",
+      eventDate: isLegacyFairCampaign ? "" : fairEventDate,
+      eventTime: isLegacyFairCampaign ? "" : fairEventTime,
       city: cleanString(fair.city, 120) || "Araraquara",
-      discount: cleanString(fair.discount, 80) || "até 60% OFF",
+      discount: isLegacyFairCampaign ? "" : fairDiscount,
       emojiMode: fairEmojiMode,
       includeEmojis: fairEmojiMode !== "none",
     },

@@ -115,10 +115,23 @@ function cleanText(value: unknown, fallback: string, maxLength: number) {
 const MAX_COACH_BODY_LENGTH = 80_000;
 const COACH_WINDOW_MS = 5 * 60 * 1000;
 const COACH_REQUESTS_PER_WINDOW = 40;
+const MAX_COACH_RATE_KEYS = 2_000;
 const coachUsage = new Map<number, { count: number; startedAt: number }>();
+
+function pruneCoachUsage(now: number) {
+  for (const [userId, entry] of coachUsage) {
+    if (now - entry.startedAt >= COACH_WINDOW_MS) coachUsage.delete(userId);
+  }
+  while (coachUsage.size >= MAX_COACH_RATE_KEYS) {
+    const oldestUserId = coachUsage.keys().next().value as number | undefined;
+    if (oldestUserId === undefined) break;
+    coachUsage.delete(oldestUserId);
+  }
+}
 
 function consumeCoachQuota(userId: number) {
   const now = Date.now();
+  pruneCoachUsage(now);
   const current = coachUsage.get(userId);
   if (!current || now - current.startedAt >= COACH_WINDOW_MS) {
     coachUsage.set(userId, { count: 1, startedAt: now });

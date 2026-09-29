@@ -88,6 +88,7 @@ assert_status() {
 
 status="${run_dir}/status"
 response="${run_dir}/response.json"
+oversized_profile="$(node -e 'process.stdout.write(JSON.stringify({displayName:"x".repeat(9000),username:"qa.limit",branch:"Araraquara",password:"Qa-Teste-2026!"}))')"
 
 request POST /api/auth/login "${cookie_a}" "${status}" "${response}" "{\"username\":\"usuario.inexistente.${suffix}\",\"password\":\"Qa-Teste-2026!\"}"
 assert_status 401 "${status}" "${response}"
@@ -99,6 +100,8 @@ node -e 'const d=require(process.argv[1]); if(d.admin!==true) process.exit(1)' "
 request GET /api/admin/users "${cookie_admin}" "${status}" "${response}"
 assert_status 200 "${status}" "${response}"
 node -e 'const d=require(process.argv[1]); if(!Array.isArray(d.users)) process.exit(1)' "${response}"
+request POST /api/admin/users "${cookie_admin}" "${status}" "${response}" "${oversized_profile}"
+assert_status 413 "${status}" "${response}"
 
 request POST /api/admin/users "${cookie_admin}" "${status}" "${response}" "{\"displayName\":\"QA Administrado\",\"username\":\"${admin_user}\",\"branch\":\"Araraquara\",\"password\":\"Qa-Teste-2026!\"}"
 assert_status 201 "${status}" "${response}"
@@ -146,6 +149,9 @@ request GET /api/data "${cookie_a}" "${status}" "${response}"
 assert_status 200 "${status}" "${response}"
 node -e 'const d=require(process.argv[1]); if(d.state?.metrics?.quotes!==3 || d.state?.training?.scoreHistory?.join(",")!=="6,8") process.exit(1)' "${response}"
 
+request PATCH /api/auth/profile "${cookie_a}" "${status}" "${response}" "${oversized_profile}"
+assert_status 413 "${status}" "${response}"
+
 request PATCH /api/auth/profile "${cookie_a}" "${status}" "${response}" "{\"displayName\":\"QA Funcionário A Editado\",\"username\":\"${user_a_edited}\",\"branch\":\"São Carlos\",\"currentPassword\":\"Qa-Teste-2026!\",\"newPassword\":\"Qa-Teste-2026-Nova!\"}"
 assert_status 200 "${status}" "${response}"
 node -e 'const d=require(process.argv[1]); if(d.user?.displayName!=="QA Funcionário A Editado" || d.user?.branch!=="São Carlos" || d.user?.username!==process.argv[2]) process.exit(1)' "${response}" "${user_a_edited}"
@@ -174,4 +180,4 @@ if [[ "${blocked_status}" != "403" ]]; then
   exit 1
 fi
 
-echo "E2E local aprovado: admin, CRUD e autoedição de perfis, redefinição de senha, cadastro zerado, persistência, isolamento e bloqueio de origem externa."
+echo "E2E local aprovado: admin, CRUD e autoedição de perfis, limites de payload, redefinição de senha, cadastro zerado, persistência, isolamento e bloqueio de origem externa."
