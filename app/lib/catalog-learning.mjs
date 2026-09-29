@@ -10,6 +10,13 @@ export const beginnerGlossary = [
   { term: "Vão livre", meaning: "O espaço efetivo de passagem depois de instalada e aberta a peça. Pode ser menor que a largura externa do produto." },
   { term: "Sentido de abertura", meaning: "O lado e o movimento da folha vistos pela convenção do fabricante. Confirme em desenho ou foto, sem adivinhar direita/esquerda." },
   { term: "Ferragens e vedação", meaning: "Dobradiças, fechadura, fechos, puxadores, trilhos e borrachas. Verifique o que acompanha aquele código." },
+  { term: "MDF e HDF", meaning: "Painéis de fibras de madeira usados em componentes diferentes. HDF é mais denso; a aplicação e a resistência à umidade dependem da peça e do revestimento." },
+  { term: "Perfil", meaning: "A seção da peça que forma o marco ou a folha de uma esquadria. Um número no nome da linha pode identificar uma família de perfil, não o tamanho da abertura." },
+  { term: "Primer e galvanização", meaning: "Primer é uma base preparadora para pintura. Galvanização é proteção de aço com zinco; uma peça com primer não é automaticamente galvanizada." },
+  { term: "Pintura eletrostática", meaning: "Processo de aplicação de tinta usado em alguns modelos. Confirme cor, preparação, ambiente de uso e cuidados da ficha específica." },
+  { term: "Estanqueidade", meaning: "Capacidade de impedir entrada de água ou ar sob condições de ensaio. Só afirme um resultado se a ficha/ensaio do produto o comprovar." },
+  { term: "PET-PVC e Renolit", meaning: "Nomes de revestimentos usados em algumas linhas de portas. Não descrevem, sozinhos, o núcleo da folha nem o comportamento em ambiente molhado." },
+  { term: "EPDM", meaning: "Tipo de borracha empregado em algumas guarnições de vedação. A existência de uma guarnição não fornece uma nota de isolamento para todo produto." },
 ];
 
 export const materialGuide = [
@@ -69,7 +76,7 @@ export const learningByBrand = {
     scenario: "Uma foto mostra duas folhas de 72 cm num portal. O conjunto final mede apenas 144 cm?",
     reasoning: "Não deduza. O portal, marco e ferragens alteram a medida final; leia no código do catálogo a dimensão total e confirme se a ficha é de folha ou conjunto montado.",
     quiz: { prompt: "Duas peças com a mesma foto e códigos diferentes podem ter a mesma composição?", options: ["Sempre: a foto define tudo.", "Não necessariamente; uma pode ser folha e a outra, conjunto montado.", "Sim, se ambas forem de madeira."], answer: 1, why: "Código e descrição determinam o que acompanha cada item; a foto não substitui a ficha." },
-    source: { label: "Catálogo oficial Casmavi", href: "https://casmavi.com.br/wp-content/uploads/2023/03/CASMAVI_2022.pdf" },
+    source: { label: "Catálogo Casmavi 2022 (exemplo histórico; confirme a edição vigente)", href: "https://casmavi.com.br/wp-content/uploads/2023/03/CASMAVI_2022.pdf" },
   },
   aluan: {
     title: "Aprenda esquadrias Aluan",
@@ -147,17 +154,17 @@ export const brimakDocumentLessons = [
     learn: "Separe pivotantes (p. 3–8), janelas de correr (p. 9–12), portas de correr (p. 13–18) e basculantes (p. 19–21). Uma janela integrada pode trazer persiana; uma porta pivotante usa pivôs e puxador. Confira a peça específica.",
     measurements: "Na tabela da pivotante da p. 4, Alt 216, Larg 100 e Req 11,5 estão em cm; a ficha também apresenta Dir/Esq. É dimensão de produto, não uma ordem para abrir o vão nessa medida.",
     inspect: "Na pivotante da p. 2, confira pivôs, puxador e fechadura principal mais duas auxiliares; numa janela ou porta de correr, veja folhas, trilho, fechamento e persiana se houver.",
-    task: "Abra as páginas 4 e 10. Diga qual é porta e qual é janela integrada; copie unidade, Alt, Larg, Req, sentido e o que ainda depende da fábrica.",
+    task: "Abra as páginas 4 e 10. Diga qual é porta e qual é janela integrada; copie unidade, Alt, Larg e Req. O lado aparece na p. 4, mas não na tabela da p. 10: anote essa ausência e confirme com a fábrica quando necessário.",
     quiz: { prompt: "A tabela 216 × 100 × 11,5 da p. 4 define sozinha o vão de instalação?", options: ["Sim, basta reproduzir esses números na parede.", "Não; são campos da peça e faltam instruções de instalação e conferência do vão.", "Sim, se for do lado direito."], answer: 1, why: "Alt/Larg/Req aparecem em cm na ficha, mas a folga e o vão de obra precisam da orientação para o modelo." },
   },
   {
     title: "Linha SUPER 25",
     href: "/catalogos/brimak-linha-super-25.pdf",
     pages: "p. 2–25",
-    learn: "Compare pivotantes (p. 3–7), portas de giro (p. 8–13), lambril (p. 14–17), clássicas (p. 18–21) e portas de correr/balcão (p. 22–25). A medida do perfil não é a largura da porta.",
+    learn: "Compare pivotantes (p. 3–7), portas de giro com puxador (p. 8–13), lambril (p. 14–17), clássicas (p. 18–21) e portas de correr/balcão (p. 22–25). A medida do perfil não é a largura da porta.",
     measurements: "A p. 4 traz um exemplo Alt 210, Larg 100, Req 4,6 e lado Dir/Esq em cm. Já 25 × 57 mm na p. 2 descreve a moldura da folha, não o vão.",
     inspect: "Compare acabamento, guarnições, vidro e frisos do modelo; teste puxador, fechadura e movimento conforme o sistema de abertura. Kit de arremates é opcional no texto da linha.",
-    task: "Compare uma pivotante da p. 4 com uma porta de correr da p. 23. Anote movimento, quantidade de folhas, medidas, vidro e itens opcionais.",
+    task: "Compare uma pivotante da p. 4 com uma porta de correr da p. 23. Anote movimento, folhas e medidas; registre vidro e opcionais só se a ficha da variante os declarar.",
     quiz: { prompt: "O que 25 × 57 mm descreve na apresentação da SUPER 25?", options: ["O vão livre da porta.", "A moldura da folha.", "A espessura da parede."], answer: 1, why: "O perfil da folha é descrito em milímetros; a tabela dos produtos usa centímetros." },
   },
   {
