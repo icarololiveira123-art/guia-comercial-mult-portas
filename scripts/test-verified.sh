@@ -13,6 +13,7 @@ fi
 exec node --experimental-loader "${SITES_PROJECT_ROOT}/tests/cloudflare-workers-loader.mjs" --test \
   "${SITES_PROJECT_ROOT}/tests/auth-contract.test.mjs" \
   "${SITES_PROJECT_ROOT}/tests/catalog-assets.test.mjs" \
+  "${SITES_PROJECT_ROOT}/tests/catalog-learning.test.mjs" \
   "${SITES_PROJECT_ROOT}/tests/coach-quality.test.mjs" \
   "${SITES_PROJECT_ROOT}/tests/fair-messages.test.mjs" \
   "${SITES_PROJECT_ROOT}/tests/password-hashing.test.mjs" \

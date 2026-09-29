@@ -11,6 +11,8 @@ Entrada pública: [icarololiveira123-art.github.io/guia-comercial-mult-portas](h
 - gestão protegida de perfis, registros e evolução da equipe;
 - roteiro comercial, timing, mensagens, controle de carteira e requisição de fábrica;
 - catálogo rápido das marcas estudadas;
+- escola do catálogo para iniciantes, com cinco etapas por marca (vocabulário, materiais, medidas, qualidade e prática), glossário e perguntas com explicação;
+- aulas página a página para os cinco PDFs Brimak anexados, com exercícios de leitura de ficha e conferência de medidas;
 - 16 cenários de treinamento, avaliação por cinco competências e índice de aprendizado;
 - treinador generativo opcional pela Responses API e modo guiado local como contingência;
 - telas de recuperação para evitar página branca em falhas de renderização.
@@ -53,6 +55,8 @@ npm run validate:artifact
 Para prévia local do build no runtime Cloudflare, use `npm start` (compila e inicia `vite preview` em `127.0.0.1`). Publicar a aplicação funcional exige acesso ao projeto de hospedagem que contém o D1 e suas variáveis; publicar apenas no GitHub Pages atualiza somente o redirecionamento.
 
 `npm test` compila a aplicação e executa os contratos de autenticação, segurança, estado, hashing, renderização, exportação Excel, recuperação do esquema e qualidade do treinador. `npm run test:e2e` sobe D1 e o Worker localmente para validar cadastro zerado, persistência após sair e entrar, isolamento entre contas e bloqueio de origem externa.
+
+As aulas de catálogo ensinam a distinguir folha, conjunto e vão acabado. Exemplos de medição são exercícios, não dimensões de fabricação: a peça, as folgas, o sentido e o desempenho devem ser conferidos na ficha vigente e com o instalador/fabricante. Apenas os cinco PDFs Brimak estão anexados; para as demais marcas, cada aula aponta ao canal oficial. A resposta dos exercícios fica na sessão da tela, sem registrar uma certificação ou nota da pessoa.
 
 ## Persistência e privacidade
 
