@@ -21,7 +21,7 @@ test("untrusted websites cannot perform session-backed mutations", async () => {
   const worker = await loadWorker();
   const paths = ["/api/auth/login", "/api/auth/register", "/api/auth/logout", "/api/auth/profile", "/api/data", "/api/coach"];
   for (const path of paths) {
-    const response = await worker.fetch(new Request(`https://guia-comercial-mult-portas.eletrovale-cont.chatgpt.site${path}`, {
+    const response = await worker.fetch(new Request(`https://guia-comercial-mult-portas.example.test${path}`, {
       method: path === "/api/data" ? "PUT" : path === "/api/auth/profile" ? "PATCH" : "POST",
       headers: { Origin: "https://example.invalid", "Content-Type": "application/json" },
       body: "{}",
@@ -31,11 +31,11 @@ test("untrusted websites cannot perform session-backed mutations", async () => {
   }
 });
 
-test("an attached custom domain can perform exact same-origin mutations", async () => {
+test("the private application accepts exact same-origin mutations", async () => {
   const worker = await loadWorker();
-  const response = await worker.fetch(new Request("https://www.multportasguia.com/api/auth/logout", {
+  const response = await worker.fetch(new Request("https://guia-comercial-mult-portas.example.test/api/auth/logout", {
     method: "POST",
-    headers: { Origin: "https://www.multportasguia.com" },
+    headers: { Origin: "https://guia-comercial-mult-portas.example.test" },
   }), runtime(), executionContext());
   assert.equal(response.status, 200);
   assert.deepEqual(JSON.parse(await response.text()), { ok: true });

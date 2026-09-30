@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#142c2a" />
+    <meta name="description" content="Aprenda a ler catálogos de portas e esquadrias: materiais, medidas, qualidade e casos práticos de nove marcas." />
+    <title>Escola do Catálogo · Guia Comercial Mult Portas</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script type="module" src="./app.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Pular para o conteúdo</a>
+    <header class="site-header">
+      <div class="container header-inner">
+        <a class="brand-lockup" href="#inicio" aria-label="Guia Comercial Mult Portas, voltar ao início">
+          <span class="brand-mark" aria-hidden="true"><span></span></span>
+          <span><strong>GUIA COMERCIAL</strong><small>MULT PORTAS</small></span>
+        </a>
+        <nav class="header-nav" aria-label="Navegação principal">
+          <a href="#aprender">Aprender</a>
+          <a href="#fichas">Fichas</a>
+          <a href="#glossario">Glossário</a>
+        </nav>
+        <a class="header-cta" href="#aprender">Começar <span aria-hidden="true">↗</span></a>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="hero" id="inicio" aria-labelledby="hero-title">
+        <div class="container hero-grid">
+          <div class="hero-copy">
+            <p class="eyebrow eyebrow-light"><span class="eyebrow-line"></span> ESCOLA DO CATÁLOGO</p>
+            <h1 id="hero-title">Aprenda a escolher<br />com <em>segurança.</em></h1>
+            <p class="hero-lead">Nunca trabalhou com portas e esquadrias? Comece pelo básico e aprenda a reconhecer materiais, conferir medidas e avaliar cada produto antes de indicar uma solução.</p>
+            <div class="hero-actions">
+              <a class="button button-primary" href="#aprender">Escolher uma marca <span aria-hidden="true">→</span></a>
+              <a class="button button-outline" href="#como-funciona">Como funciona</a>
+            </div>
+            <p class="hero-caption">Sem cadastro. Seu progresso fica salvo neste navegador.</p>
+          </div>
+          <div class="hero-visual" aria-hidden="true">
+            <div class="hero-visual-top">LEIA A FICHA · CONFIRA O VÃO · COMPARE A PEÇA</div>
+            <div class="visual-frame"><div class="visual-leaf"><span class="visual-handle"></span></div></div>
+            <span class="measurement measurement-top">LARGURA <i></i></span>
+            <span class="measurement measurement-side">ALTURA <i></i></span>
+            <span class="visual-note">01 / 09<br />DO ZERO À ESPECIFICAÇÃO</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="intro-section" id="como-funciona" aria-labelledby="intro-title">
+        <div class="container intro-grid">
+          <div>
+            <p class="eyebrow">UM PASSO DE CADA VEZ</p>
+            <h2 id="intro-title">Entender primeiro.<br /><em>Indicar depois.</em></h2>
+          </div>
+          <div class="intro-copy">
+            <p>Escolha uma marca, percorra cinco etapas e pratique com um caso realista. Quando um dado não aparecer na ficha, aprenda a marcar “a confirmar” em vez de adivinhar.</p>
+            <div class="intro-stats" id="intro-stats" aria-label="Conteúdo disponível"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="learn-section" id="aprender" aria-labelledby="learn-title">
+        <div class="container">
+          <div class="section-heading">
+            <div><p class="eyebrow">TRILHAS DE APRENDIZADO</p><h2 id="learn-title">Escolha seu catálogo.</h2><p>O mesmo método, aplicado às particularidades de cada marca.</p></div>
+            <div class="progress-overview" id="progress-overview" aria-live="polite"></div>
+          </div>
+          <div id="brand-list" class="brand-list" aria-label="Escolha uma marca para estudar"></div>
+          <div class="guide" id="guide"></div>
+        </div>
+      </section>
+
+      <section class="reference-section" id="fichas" aria-labelledby="fichas-title">
+        <div class="container">
+          <div class="section-heading">
+            <div><p class="eyebrow">REFERÊNCIA PARA CONSULTA</p><h2 id="fichas-title">Fichas comerciais.</h2><p>Pesquise por marca, modelo ou característica e confira os pontos que faltam confirmar.</p></div>
+          </div>
+          <div class="filter-bar">
+            <label class="filter-search"><span>Buscar nas fichas</span><input id="catalog-search" type="search" placeholder="Ex.: porta de correr, alumínio, kit" autocomplete="off" /></label>
+            <label><span>Marca</span><select id="catalog-brand"></select></label>
+            <label><span>Família</span><select id="catalog-family"></select></label>
+          </div>
+          <p class="catalog-total" id="catalog-total" role="status"></p>
+          <div class="catalog-grid" id="catalog-grid"></div>
+          <div class="load-more-wrap"><button class="button button-secondary" id="load-more" type="button" hidden>Mostrar mais fichas <span aria-hidden="true">↓</span></button></div>
+          <p class="reference-note">As fichas são material de estudo. Medidas, composição, disponibilidade, prazo e desempenho devem ser conferidos no código e na ficha vigente do fabricante antes de cotar.</p>
+        </div>
+      </section>
+
+      <section class="glossary-section" id="glossario" aria-labelledby="glossary-title">
+        <div class="container glossary-grid">
+          <div class="glossary-heading"><p class="eyebrow">PALAVRAS QUE IMPORTAM</p><h2 id="glossary-title">Glossário<br /><em>sem complicar.</em></h2><p>Um guia rápido para entender os termos mais comuns em uma ficha técnica.</p><a class="text-link" href="#aprender">Voltar às aulas <span aria-hidden="true">↑</span></a></div>
+          <div class="glossary-items" id="glossary-items"></div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer"><div class="container footer-inner"><span>GUIA COMERCIAL · MULT PORTAS</span><p>Leia a ficha do modelo. Confirme as medidas. Explique com clareza.</p><a href="#inicio">Voltar ao início ↑</a></div></footer>
+  </body>
+</html>

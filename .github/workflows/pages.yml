@@ -35,6 +35,9 @@ jobs:
       - name: Verificar código
         run: npm run lint
 
+      - name: Verificar tipos
+        run: npm run typecheck
+
       - name: Compilar aplicação
         run: npm run build
 

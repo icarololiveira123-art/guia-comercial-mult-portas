@@ -60,12 +60,12 @@ test("auth and employee-data errors always return JSON", async () => {
   assert.match(logout.response.headers.get("set-cookie") ?? "", /mp_employee_session=;/);
 });
 
-test("the GitHub mirror cannot call the private application API", async () => {
+test("the GitHub Pages origin cannot call the separate private application API", async () => {
   const worker = await loadWorker();
   const response = await worker.fetch(
-    new Request("https://guia-comercial-mult-portas.eletrovale-cont.chatgpt.site/api/auth/logout", {
+    new Request("https://guia-comercial-mult-portas.example.test/api/auth/logout", {
       method: "POST",
-      headers: { Origin: "https://icaroluciano13-dot.github.io" },
+      headers: { Origin: "https://icarololiveira123-art.github.io" },
     }),
     { ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) } },
     executionContext(),
@@ -129,7 +129,7 @@ test("login attempts are rate limited before repeated expensive authentication",
 test("admin login rejects an unapproved web origin", async () => {
   const worker = await loadWorker();
   const response = await worker.fetch(
-    new Request("https://guia-comercial-mult-portas.eletrovale-cont.chatgpt.site/api/auth/login", {
+    new Request("https://guia-comercial-mult-portas.example.test/api/auth/login", {
       method: "POST",
       headers: {
         Origin: "https://example.invalid",

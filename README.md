@@ -1,67 +1,46 @@
 # Guia Comercial Mult Portas
 
-Aplicação interna para atendimento comercial, acompanhamento individual e treinamento de conversas da equipe Mult Portas.
+Catálogos comerciais e aulas para quem está começando a trabalhar com portas e esquadrias.
 
-Entrada pública: [icarololiveira123-art.github.io/guia-comercial-mult-portas](https://icarololiveira123-art.github.io/guia-comercial-mult-portas/). O GitHub Pages redireciona para o aplicativo dinâmico em `guia-comercial-mult-portas.eletrovale-cont.chatgpt.site`; o endereço na barra do navegador muda após abrir o link.
+**Site público:** [icarololiveira123-art.github.io/guia-comercial-mult-portas](https://icarololiveira123-art.github.io/guia-comercial-mult-portas/).
 
-## O que está incluído
+## O que funciona no GitHub Pages
 
-- acesso e cadastro separados do conteúdo do guia;
-- sessão individual e dados persistidos por funcionário;
-- gestão protegida de perfis, registros e evolução da equipe;
-- roteiro comercial, timing, mensagens, controle de carteira e requisição de fábrica;
-- catálogo rápido das marcas estudadas;
-- escola do catálogo para iniciantes, com cinco etapas por marca (vocabulário, materiais, medidas, qualidade e prática), glossário e perguntas com explicação;
-- aulas página a página para os cinco PDFs Brimak anexados, com exercícios de leitura de ficha e conferência de medidas;
-- 16 cenários de treinamento, avaliação por cinco competências e índice de aprendizado;
-- treinador generativo opcional pela Responses API e modo guiado local como contingência;
-- telas de recuperação para evitar página branca em falhas de renderização.
+- Fichas comerciais pesquisáveis por marca e família, com perguntas de conferência antes da cotação.
+- Trilhas de aprendizado para nove marcas: materiais, medidas, avaliação de qualidade, casos práticos e perguntas com explicação.
+- Cinco catálogos Brimak em PDF, cada um com roteiro de estudo por página e exercício.
+- Glossário e método para separar medidas da folha, do conjunto e do vão acabado.
+- Progresso dos exercícios salvo somente no navegador do dispositivo usado. Não há conta, login, certificado nem sincronização entre aparelhos.
 
-## Arquitetura
+As aulas são material de estudo. Especificações, composição, medidas, disponibilidade, instalação, desempenho e garantia devem ser confirmados no código e na ficha vigente do fabricante. Não existe uma folga de instalação universal. O catálogo geral Brimak de 2018 é uma referência histórica.
 
-- Next.js 16 + React 19 sobre Vinext/Vite;
-- Cloudflare Worker como entrada HTTP;
-- Cloudflare D1 e Drizzle para usuários, sessões e estado individual;
-- inicialização idempotente do esquema D1 para recuperar automaticamente bancos novos ou ainda não migrados;
-- cookies de sessão `HttpOnly`, validação de origem e respostas de API sem cache;
-- estado persistido com contrato versionado, limites de tamanho e normalização no servidor;
-- GitHub como espelho versionado do código e Pages como porta de entrada estática; o domínio do Sites é o runtime autenticado. Um push no GitHub **não** implanta mudanças do Worker, das APIs ou do D1 no Sites.
+## Publicação no GitHub
 
-A tela de autenticação vive em `app/auth-screen.tsx`. O conteúdo do guia permanece em `app/page.tsx`, de modo que atualizações do conteúdo não alterem a fronteira de acesso.
+O workflow `.github/workflows/pages.yml` executa verificações, roda `npm run build:github` e publica `dist-pages/` no GitHub Pages. Esse diretório contém apenas HTML, CSS, JavaScript, os dados públicos dos catálogos e os cinco PDFs. O site usa caminhos relativos para funcionar no endereço do projeto (`/guia-comercial-mult-portas/`). O domínio público é o próprio `github.io`; não é necessário comprar domínio.
 
-## Variáveis de runtime
+Para gerar e visualizar a versão pública localmente:
 
-Configure os valores apenas no ambiente de hospedagem. Nunca grave segredos no código ou no Git:
+```bash
+npm run build:github
+cd dist-pages
+python3 -m http.server 8000
+```
 
-- `ADMIN_PASSWORD`: segredo administrativo do servidor;
-- `OPENAI_API_KEY`: opcional; habilita o treinador generativo;
-- `OPENAI_MODEL`: opcional; o padrão é `gpt-5.6-terra`.
+Abra `http://localhost:8000/`. Para testar com o mesmo prefixo do GitHub Pages, sirva o diretório como `/guia-comercial-mult-portas/`.
 
-Sem `OPENAI_API_KEY`, o laboratório continua operando no modo guiado, sem chamadas pagas.
+## Código da aplicação interna
 
-## Desenvolvimento e validação
+O repositório também contém uma aplicação Next.js/React com APIs, autenticação, dados individuais e treinador de conversas. Ela depende de um servidor Cloudflare Worker, banco D1 e variáveis de ambiente. **Esse código não é executado pelo GitHub Pages**; não há login ou persistência de equipe na versão pública.
 
-Requisitos: Node.js `>=22.13.0`, Bash, `curl` e GNU `timeout`.
+Para desenvolver e validar esse código separadamente, são necessários Node.js `>=22.13.0`, Bash, `curl` e GNU `timeout`:
 
 ```bash
 npm ci
 npm run dev
 npm run lint
+npm run typecheck
 npm test
 npm run test:e2e
-npm run validate:artifact
 ```
 
-Para prévia local do build no runtime Cloudflare, use `npm start` (compila e inicia `vite preview` em `127.0.0.1`). Publicar a aplicação funcional exige acesso ao projeto de hospedagem que contém o D1 e suas variáveis; publicar apenas no GitHub Pages atualiza somente o redirecionamento.
-
-`npm test` compila a aplicação e executa os contratos de autenticação, segurança, estado, hashing, renderização, exportação Excel, recuperação do esquema e qualidade do treinador. `npm run test:e2e` sobe D1 e o Worker localmente para validar cadastro zerado, persistência após sair e entrar, isolamento entre contas e bloqueio de origem externa.
-
-As aulas de catálogo ensinam a distinguir folha, conjunto e vão acabado. Exemplos de medição são exercícios, não dimensões de fabricação: a peça, as folgas, o sentido e o desempenho devem ser conferidos na ficha vigente e com o instalador/fabricante. Apenas os cinco PDFs Brimak estão anexados; para as demais marcas, cada aula aponta ao canal oficial. A resposta dos exercícios fica na sessão da tela, sem registrar uma certificação ou nota da pessoa.
-
-## Persistência e privacidade
-
-O D1 é a fonte de verdade. O navegador mantém somente uma cópia temporária e vinculada ao ID do funcionário para tolerar interrupções de rede. Uma resposta vazia bem-sucedida do servidor é tratada como conta nova e limpa qualquer cópia local antiga.
-
-A exportação de requisições gera um arquivo `.xlsx` nativo no navegador, preserva preços como números e trata todo texto como conteúdo literal — inclusive quando começa com `=`, `+`, `-` ou `@` — para não executar fórmulas vindas de campos preenchidos.
-
-As conversas enviadas ao treinador generativo usam `store: false`, identificador de segurança pseudonimizado, payload limitado e saída estruturada. A fala do cliente passa por uma política adicional para impedir que o simulador responda como vendedor ou treinador.
+As variáveis do servidor, como `ADMIN_PASSWORD` e a opcional `OPENAI_API_KEY`, nunca devem ser gravadas no repositório. Nenhuma delas é usada no site estático publicado.
