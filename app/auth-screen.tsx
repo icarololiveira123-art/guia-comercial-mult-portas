@@ -35,16 +35,38 @@ export function AuthScreen({ mode, setMode, form, setForm, error, busy, adminSet
   const update = (key: keyof AuthFormState, value: string) => setForm((current) => ({ ...current, [key]: value }));
 
   return (
-    <main className="auth-shell">
-      <section className="auth-card" aria-labelledby="auth-title">
-        <div className="auth-brand">
+    <main className="access-page">
+      <aside className="access-story" aria-labelledby="access-story-title">
+        <div className="access-story-intro">
+          <span className="access-story-kicker">GUIA COMERCIAL · MULT PORTAS</span>
+          <h2 id="access-story-title">Sua rotina comercial, <em>em um só lugar.</em></h2>
+          <p>Da primeira conversa até o próximo retorno, tenha as informações que ajudam a atender com clareza.</p>
+        </div>
+        <div className="access-door" aria-hidden="true">
+          <svg viewBox="0 0 180 220" fill="none" focusable="false">
+            <path className="access-door-frame" d="M24 201V19h132v182" />
+            <path className="access-door-leaf" d="M43 200V37h94v163" />
+            <path className="access-door-detail" d="M52 47h76v143H52zM43 200h94M15 201h150" />
+            <circle className="access-door-handle" cx="116" cy="121" r="4" />
+          </svg>
+        </div>
+        <ol className="access-story-grid">
+          <li><span>01</span><div><strong>Aprender</strong><p>Conheça materiais, medidas e catálogos com aulas por marca.</p></div></li>
+          <li><span>02</span><div><strong>Atender</strong><p>Consulte o roteiro, prepare mensagens e monte requisições.</p></div></li>
+          <li><span>03</span><div><strong>Acompanhar</strong><p>Organize retornos, pendências e a prática de atendimento.</p></div></li>
+        </ol>
+        <p className="access-story-foot">MULT PORTAS · GUIA PARA A EQUIPE</p>
+      </aside>
+
+      <section className="access-panel" aria-labelledby="auth-title">
+        <div className="auth-brand access-brand">
           <div className="brand-mark auth-mark">MP</div>
           <div>
             <strong>MULT PORTAS</strong>
             <span>Guia comercial interno</span>
           </div>
         </div>
-        <div className="auth-heading">
+        <div className="auth-heading access-heading">
           <span className="section-kicker">{isAdminSetup ? "PRIMEIRO ACESSO DO ADMIN" : "ACESSO DA EQUIPE"}</span>
           <h1 id="auth-title">{isAdminSetup ? "Configure a gestão." : isRegister ? "Crie seu acesso." : "Entre no seu espaço."}</h1>
           <p>{isAdminSetup
@@ -59,10 +81,10 @@ export function AuthScreen({ mode, setMode, form, setForm, error, busy, adminSet
           <button type="button" aria-pressed={isRegister} className={isRegister ? "active" : ""} onClick={() => setMode("register")}>
             Cadastro
           </button>
-          {isGithubPages && adminSetupAvailable && <button type="button" aria-pressed={isAdminSetup} className={isAdminSetup ? "active" : ""} onClick={() => setMode("admin-setup")}>
-            Configurar admin
-          </button>}
         </div>
+        {isGithubPages && adminSetupAvailable && <button type="button" className={`access-admin-link${isAdminSetup ? " active" : ""}`} aria-pressed={isAdminSetup} onClick={() => setMode("admin-setup")}>
+          Configurar administrador local <span aria-hidden="true">→</span>
+        </button>}
 
         <form className="auth-form" onSubmit={onSubmit} aria-describedby={error ? "auth-error" : undefined}>
           {isRegister && (

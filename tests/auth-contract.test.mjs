@@ -168,6 +168,7 @@ test("switching roles clears the opposite authentication cookie", async () => {
 test("admin profile management exposes protected create, edit and delete routes", async () => {
   const { readFile } = await import("node:fs/promises");
   const pageSource = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const accountSource = await readFile(new URL("../app/account-center.tsx", import.meta.url), "utf8");
   const collectionRoute = await readFile(new URL("../app/api/admin/users/route.ts", import.meta.url), "utf8");
   const itemRoute = await readFile(new URL("../app/api/admin/users/[id]/route.ts", import.meta.url), "utf8");
   assert.match(collectionRoute, /export async function POST/);
@@ -181,20 +182,24 @@ test("admin profile management exposes protected create, edit and delete routes"
   assert.match(itemRoute, /readBoundedAuthJson\(request,/);
   assert.doesNotMatch(collectionRoute, /await request\.json\(\)/);
   assert.doesNotMatch(itemRoute, /await request\.json\(\)/);
-  assert.match(pageSource, /detailsRequestRef/);
-  assert.match(pageSource, /detailsRequestRef\.current\?\.id !== requestId/);
-  assert.match(pageSource, /detailsError \? \(/);
-  assert.match(pageSource, /value\.split\("\|", 1\)\[0\]/);
+  assert.match(pageSource, /from ["']\.\/account-center["']/);
+  assert.match(pageSource, /if \(isAdmin\) return <AccountCenter[^>]*request=\{apiFetch\}/);
+  assert.match(accountSource, /request\("\/api\/admin\/users", \{ cache: "no-store" \}\)/);
+  assert.match(accountSource, /request\(`\/api\/admin\/users\/\$\{account\.id\}`[^)]*signal: controller\.signal/);
+  assert.match(accountSource, /detailsRequestRef\.current\?\.id !== requestId/);
+  assert.match(accountSource, /detailsError \? \(/);
+  assert.match(accountSource, /request\(`\/api\/admin\/users\/\$\{account\.id\}`, \{ method: "DELETE" \}\)/);
+  assert.match(accountSource, /value\.split\("\|", 1\)\[0\]/);
 });
 
 test("admin refresh action remains legible while loading", async () => {
   const { readFile } = await import("node:fs/promises");
-  const pageSource = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
-  const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
-  assert.match(pageSource, /className="button account-refresh"/);
-  assert.match(pageSource, /loading \? "Atualizando…" : "Atualizar"/);
-  assert.match(styles, /\.account-refresh\s*\{[^}]*color:\s*#3f4b52[^}]*background:\s*#f4f6f6/s);
-  assert.match(styles, /\.account-refresh:disabled\s*\{[^}]*color:\s*#69767d[^}]*opacity:\s*1/s);
+  const accountSource = await readFile(new URL("../app/account-center.tsx", import.meta.url), "utf8");
+  const styles = await readFile(new URL("../app/redesign.css", import.meta.url), "utf8");
+  assert.match(accountSource, /<button className="button account-refresh"[^\n]*disabled=\{loading\}[^\n]*aria-busy=\{loading\}/);
+  assert.match(accountSource, /loading \? "Atualizando…" : "Atualizar"/);
+  assert.match(styles, /\.admin-masthead \.account-refresh\s*\{[^}]*color:\s*#fff[^}]*background:\s*transparent/s);
+  assert.match(styles, /\.admin-masthead \.account-refresh:disabled\s*\{[^}]*color:\s*#d5dfd1[^}]*opacity:\s*1/s);
 });
 
 test("employee authentication UI stays separate from the guide workspace", async () => {
@@ -203,8 +208,10 @@ test("employee authentication UI stays separate from the guide workspace", async
   const authSource = await readFile(new URL("../app/auth-screen.tsx", import.meta.url), "utf8");
   assert.match(pageSource, /from ["']\.\/auth-screen["']/);
   assert.doesNotMatch(pageSource, /function AuthScreen\(/);
+  assert.match(pageSource, /if \(!authUser && !isAdmin\) \{\s*return <AuthScreen/);
   assert.match(authSource, /export function AuthScreen/);
-  assert.match(authSource, /className="auth-shell"/);
+  assert.match(authSource, /<main className="access-page">/);
+  assert.match(authSource, /<form className="auth-form" onSubmit=\{onSubmit\}/);
 });
 
 test("employees can securely edit their own profile without reloading account data", async () => {

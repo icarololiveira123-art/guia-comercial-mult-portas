@@ -2,7 +2,10 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AuthScreen } from "./auth-screen";
-import { CatalogLearning } from "./catalog-learning";
+import { WorkspaceIcon, type WorkspaceIconName } from "./workspace-icon";
+import { HomeWorkspace } from "./home-workspace";
+import { CatalogWorkspace } from "./catalog-workspace";
+import { AccountCenter } from "./account-center";
 import { catalogItems as catalogItemData } from "./lib/catalog-items.mjs";
 import { localApiFetch } from "./lib/github-local-api.mjs";
 import { guidedCustomerReply } from "./api/coach/customer-policy.mjs";
@@ -542,9 +545,17 @@ const sections: { id: Section; label: string; icon: string; description: string 
   { id: "messages", label: "Mensagem rápida", icon: "✎", description: "Planeje e copie" },
   { id: "fair", label: "Convite Feirão", icon: "✉", description: "Personalize e convide" },
   { id: "factory", label: "Requisição fábrica", icon: "▤", description: "Preencha e exporte" },
-  { id: "catalog", label: "Catálogo rápido", icon: "▦", description: "Marcas e soluções" },
+  { id: "catalog", label: "Catálogos", icon: "▦", description: "Marcas e soluções" },
   { id: "control", label: "Controle", icon: "✓", description: "Pendências e carteira" },
   { id: "management", label: "Gestão", icon: "▥", description: "Indicadores e rotina" },
+];
+
+const workspaceGroups: { id: string; label: string; icon: WorkspaceIconName; sections: Section[] }[] = [
+  { id: "home", label: "Início", icon: "home", sections: ["overview"] },
+  { id: "learn", label: "Aprender", icon: "book", sections: ["catalog", "seller", "training"] },
+  { id: "serve", label: "Atender", icon: "message", sections: ["script", "messages", "fair", "timing"] },
+  { id: "operate", label: "Operação", icon: "work", sections: ["control", "factory"] },
+  { id: "measure", label: "Indicadores", icon: "chart", sections: ["management"] },
 ];
 
 const salesSteps = [
@@ -1527,393 +1538,9 @@ function guidedCoach(scenario: TrainingScenario, sellerMessage: string, turn: nu
   };
 }
 
-type AccountRecord = EmployeeUser & {
-  createdAt: string;
-  dataUpdatedAt: string | null;
-  summary?: AccountSummary;
-};
-
-type AccountSummary = {
-  learningIndex: number;
-  averageScore: number;
-  rounds: number;
-  bestScore: number;
-  scenariosPracticed: number;
-  weakestSkill: TrainingSkillId | null;
-  lastPracticedAt: string | null;
-  quotes: number;
-  closed: number;
-  pendingFollowUps: number;
-  preparedFactoryItems: number;
-};
-
-const emptyAccountSummary: AccountSummary = {
-  learningIndex: 0,
-  averageScore: 0,
-  rounds: 0,
-  bestScore: 0,
-  scenariosPracticed: 0,
-  weakestSkill: null,
-  lastPracticedAt: null,
-  quotes: 0,
-  closed: 0,
-  pendingFollowUps: 0,
-  preparedFactoryItems: 0,
-};
-
-type AccountEditorState = {
-  id: number | null;
-  displayName: string;
-  username: string;
-  branch: EmployeeUser["branch"];
-  password: string;
-  confirmPassword: string;
-};
-
-function blankAccountEditor(id: number | null = null): AccountEditorState {
-  return {
-    id,
-    displayName: "",
-    username: "",
-    branch: "Araraquara",
-    password: "",
-    confirmPassword: "",
-  };
-}
-
-function formatAccountDate(value: string | null) {
-  if (!value) return "Ainda não usado";
-  const date = new Date(value.split("|", 1)[0]);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(date);
-}
-
-function AccountCenter({ onLogout, externalError }: { onLogout: () => Promise<void>; externalError?: string }) {
-  const [accounts, setAccounts] = useState<AccountRecord[]>([]);
-  const [selectedAccount, setSelectedAccount] = useState<AccountRecord | null>(null);
-  const [selectedState, setSelectedState] = useState<PersistedGuideState | null>(null);
-  const [selectedSummary, setSelectedSummary] = useState<AccountSummary>(emptyAccountSummary);
-  const [accountQuery, setAccountQuery] = useState("");
-  const [branchFilter, setBranchFilter] = useState<"Todas" | EmployeeUser["branch"]>("Todas");
-  const [editor, setEditor] = useState<AccountEditorState | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [detailsLoading, setDetailsLoading] = useState(false);
-  const [detailsError, setDetailsError] = useState("");
-  const [editorBusy, setEditorBusy] = useState(false);
-  const [deletingId, setDeletingId] = useState<number | null>(null);
-  const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
-  const detailsRequestRef = useRef<{ id: number; controller: AbortController } | null>(null);
-  const detailsRequestIdRef = useRef(0);
-
-  async function loadAccounts() {
-    setLoading(true);
-    setError("");
-    try {
-      const response = await apiFetch("/api/admin/users", { cache: "no-store" });
-      const payload = await readResponseJson<{ users?: AccountRecord[]; error?: string }>(response);
-      if (!response.ok) throw new Error(payload.error || "Não foi possível carregar as contas.");
-      setAccounts(Array.isArray(payload.users) ? payload.users : []);
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Não foi possível carregar as contas.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => { void loadAccounts(); }, 0);
-    return () => {
-      window.clearTimeout(timer);
-      detailsRequestRef.current?.controller.abort();
-    };
-  }, []);
-
-  async function openAccount(account: AccountRecord) {
-    detailsRequestRef.current?.controller.abort();
-    const requestId = detailsRequestIdRef.current + 1;
-    detailsRequestIdRef.current = requestId;
-    const controller = new AbortController();
-    detailsRequestRef.current = { id: requestId, controller };
-    setSelectedAccount(account);
-    setSelectedState(null);
-    setSelectedSummary(account.summary ?? emptyAccountSummary);
-    setDetailsError("");
-    setDetailsLoading(true);
-    try {
-      const response = await apiFetch(`/api/admin/users/${account.id}`, { cache: "no-store", signal: controller.signal });
-      if (detailsRequestRef.current?.id !== requestId) return;
-      const payload = await readResponseJson<{ user?: AccountRecord; state?: PersistedGuideState | null; summary?: AccountSummary; error?: string }>(response);
-      if (detailsRequestRef.current?.id !== requestId) return;
-      if (!response.ok || !payload.user) throw new Error(payload.error || "Não foi possível abrir os dados da conta.");
-      setSelectedAccount(payload.user);
-      setSelectedState(payload.state && typeof payload.state === "object" ? payload.state : null);
-      setSelectedSummary(payload.summary ?? payload.user.summary ?? emptyAccountSummary);
-    } catch (loadError) {
-      if (controller.signal.aborted || detailsRequestRef.current?.id !== requestId) return;
-      setDetailsError(loadError instanceof Error ? loadError.message : "Não foi possível abrir os dados da conta.");
-    } finally {
-      if (detailsRequestRef.current?.id === requestId) {
-        detailsRequestRef.current = null;
-        setDetailsLoading(false);
-      }
-    }
-  }
-
-  function closeAccountDetails() {
-    detailsRequestRef.current?.controller.abort();
-    detailsRequestRef.current = null;
-    setDetailsLoading(false);
-    setDetailsError("");
-    setSelectedAccount(null);
-    setSelectedState(null);
-    setSelectedSummary(emptyAccountSummary);
-  }
-
-  function startCreate() {
-    setError("");
-    setNotice("");
-    closeAccountDetails();
-    setEditor(blankAccountEditor());
-  }
-
-  function startEdit(account: AccountRecord) {
-    setError("");
-    setNotice("");
-    setEditor({ id: account.id, displayName: account.displayName, username: account.username, branch: account.branch, password: "", confirmPassword: "" });
-  }
-
-  function closeEditor() {
-    if (editorBusy) return;
-    setEditor(null);
-  }
-
-  async function saveAccount(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!editor) return;
-    setError("");
-    setNotice("");
-    if (editor.password !== editor.confirmPassword) {
-      setError("As senhas não coincidem.");
-      return;
-    }
-    if (editor.id === null && editor.password.length < 8) {
-      setError("A senha deve ter pelo menos 8 caracteres.");
-      return;
-    }
-    if (editor.id !== null && editor.password && editor.password.length < 8) {
-      setError("A nova senha deve ter pelo menos 8 caracteres.");
-      return;
-    }
-
-    setEditorBusy(true);
-    try {
-      const endpoint = editor.id === null ? "/api/admin/users" : `/api/admin/users/${editor.id}`;
-      const response = await apiFetch(endpoint, {
-        method: editor.id === null ? "POST" : "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ displayName: editor.displayName, username: editor.username, branch: editor.branch, password: editor.password }),
-      });
-      const payload = await readResponseJson<{ user?: AccountRecord; error?: string }>(response);
-      if (!response.ok || !payload.user) throw new Error(payload.error || "Não foi possível salvar o funcionário.");
-      const wasNew = editor.id === null;
-      setEditor(null);
-      closeAccountDetails();
-      await loadAccounts();
-      setNotice(wasNew ? "Funcionário criado com sucesso." : "Perfil atualizado com sucesso.");
-    } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "Não foi possível salvar o funcionário.");
-    } finally {
-      setEditorBusy(false);
-    }
-  }
-
-  async function deleteAccount(account: AccountRecord) {
-    if (!window.confirm(`Apagar o perfil de ${account.displayName}? Os registros e o acesso dessa conta também serão removidos.`)) return;
-    setError("");
-    setNotice("");
-    setDeletingId(account.id);
-    try {
-      const response = await apiFetch(`/api/admin/users/${account.id}`, { method: "DELETE" });
-      const payload = await readResponseJson<{ error?: string }>(response);
-      if (!response.ok) throw new Error(payload.error || "Não foi possível apagar o funcionário.");
-      if (selectedAccount?.id === account.id) {
-        closeAccountDetails();
-      }
-      if (editor?.id === account.id) setEditor(null);
-      await loadAccounts();
-      setNotice("Funcionário apagado com sucesso.");
-    } catch (deleteError) {
-      setError(deleteError instanceof Error ? deleteError.message : "Não foi possível apagar o funcionário.");
-    } finally {
-      setDeletingId(null);
-    }
-  }
-
-  const stateEntries = selectedState ? Object.entries(selectedState).filter(([, value]) => value !== undefined && value !== null) : [];
-  const visibleAccounts = accounts.filter((account) => {
-    const query = accountQuery.trim().toLocaleLowerCase("pt-BR");
-    const matchesQuery = !query || `${account.displayName} ${account.username}`.toLocaleLowerCase("pt-BR").includes(query);
-    return matchesQuery && (branchFilter === "Todas" || account.branch === branchFilter);
-  });
-  const trainedAccounts = accounts.filter((account) => (account.summary?.rounds ?? 0) > 0);
-  const averageLearning = trainedAccounts.length
-    ? Math.round(trainedAccounts.reduce((total, account) => total + (account.summary?.learningIndex ?? 0), 0) / trainedAccounts.length)
-    : 0;
-
-  return (
-    <main className="account-shell">
-      <section className="account-card" aria-labelledby="accounts-title">
-        <header className="account-header">
-          <div className="auth-brand">
-            <div className="brand-mark auth-mark">MP</div>
-            <div>
-              <strong>MULT PORTAS</strong>
-              <span>Guia comercial interno</span>
-            </div>
-          </div>
-          <div className="account-actions">
-            <button className="button primary account-new" type="button" onClick={startCreate}>Novo funcionário <span>+</span></button>
-            <button
-              className="button account-refresh"
-              type="button"
-              onClick={() => void loadAccounts()}
-              disabled={loading}
-              aria-busy={loading}
-            >
-              <span aria-hidden="true">{loading ? "…" : "↻"}</span>
-              {loading ? "Atualizando…" : "Atualizar"}
-            </button>
-            <button className="logout-button account-logout" type="button" onClick={() => void onLogout()}>Sair</button>
-          </div>
-        </header>
-
-        <div className="account-heading">
-          <span className="section-kicker">GESTÃO DE FUNCIONÁRIOS</span>
-          <h1 id="accounts-title">Perfis sob controle.</h1>
-          <p>{IS_GITHUB_PAGES
-            ? "Gerencie os perfis e registros salvos neste navegador. Contas criadas em outros aparelhos não aparecem aqui; este acesso local não protege dados sensíveis."
-            : "Crie, edite ou apague perfis e consulte os registros separados de cada funcionário."}</p>
-        </div>
-
-        {(error || externalError) && <div className="auth-error" role="alert">{error || externalError}</div>}
-        {notice && <div className="account-notice" role="status">✓ {notice}</div>}
-
-        <section className="account-overview" aria-label="Resumo da equipe">
-          <div><strong>{accounts.length}</strong><span>funcionários</span><small>perfis com dados separados</small></div>
-          <div><strong>{accounts.filter((account) => account.dataUpdatedAt).length}</strong><span>contas utilizadas</span><small>{IS_GITHUB_PAGES ? "com registros neste aparelho" : "com registros sincronizados"}</small></div>
-          <div><strong>{trainedAccounts.length}</strong><span>em treinamento</span><small>com pelo menos uma rodada</small></div>
-          <div><strong>{trainedAccounts.length ? `${averageLearning}/100` : "—"}</strong><span>aprendizado médio</span><small>somente quem já treinou</small></div>
-        </section>
-
-        <div className="account-filters">
-          <label><span>Buscar funcionário</span><input value={accountQuery} onChange={(event) => setAccountQuery(event.target.value)} placeholder="Nome ou usuário" type="search" /></label>
-          <label><span>Filial</span><select value={branchFilter} onChange={(event) => setBranchFilter(event.target.value as typeof branchFilter)}><option>Todas</option><option>Araraquara</option><option>São Carlos</option></select></label>
-          <span>{visibleAccounts.length} de {accounts.length} perfis</span>
-        </div>
-
-        {loading ? (
-          <div className="account-empty" aria-live="polite">Carregando contas…</div>
-        ) : accounts.length === 0 ? (
-          <div className="account-empty">Nenhuma conta cadastrada.</div>
-        ) : visibleAccounts.length === 0 ? (
-          <div className="account-empty">Nenhum funcionário corresponde aos filtros.</div>
-        ) : (
-          <div className="account-list">
-            {visibleAccounts.map((account) => (
-              <article className={`account-row ${selectedAccount?.id === account.id ? "selected" : ""}`} key={account.id}>
-                <div className="account-avatar">{account.displayName.slice(0, 1).toUpperCase()}</div>
-                <div className="account-main">
-                  <strong>{account.displayName}</strong>
-                  <span>{account.username} · {account.branch}</span>
-                </div>
-                <div className="account-meta">
-                  <small>Cadastro</small>
-                  <span>{formatAccountDate(account.createdAt)}</span>
-                </div>
-                <div className="account-meta">
-                  <small>Registros</small>
-                  <span>{account.dataUpdatedAt ? formatAccountDate(account.dataUpdatedAt) : "Sem dados"}</span>
-                </div>
-                <div className="account-row-actions">
-                  <button className="account-open" type="button" onClick={() => void openAccount(account)}>{selectedAccount?.id === account.id ? "Atualizar" : "Abrir dados"} <span>→</span></button>
-                  <button className="account-edit" type="button" onClick={() => startEdit(account)}>Editar</button>
-                  <button className="account-delete" type="button" onClick={() => void deleteAccount(account)} disabled={deletingId === account.id}>{deletingId === account.id ? "Apagando…" : "Apagar"}</button>
-                </div>
-              </article>
-            ))}
-          </div>
-        )}
-
-        {editor && (
-          <section className="account-editor" aria-labelledby="account-editor-title">
-            <div className="account-detail-head">
-              <div>
-                <span className="section-kicker">{editor.id === null ? "NOVO FUNCIONÁRIO" : "EDITAR PERFIL"}</span>
-                <h2 id="account-editor-title">{editor.id === null ? "Criar acesso" : "Atualizar dados"}</h2>
-                <p>{editor.id === null ? "O perfil já ficará pronto para entrar no guia." : "Deixe a senha em branco para mantê-la como está."}</p>
-              </div>
-              <button className="text-button" type="button" onClick={closeEditor} disabled={editorBusy}>Fechar <span>×</span></button>
-            </div>
-            <form className="account-editor-form" onSubmit={saveAccount}>
-              <label><span>Nome completo</span><input value={editor.displayName} onChange={(event) => setEditor((current) => current ? { ...current, displayName: event.target.value } : current)} autoComplete="name" required /></label>
-              <label><span>Usuário</span><input value={editor.username} onChange={(event) => setEditor((current) => current ? { ...current, username: event.target.value } : current)} autoComplete="username" required /></label>
-              <label><span>Filial</span><select value={editor.branch} onChange={(event) => setEditor((current) => current ? { ...current, branch: event.target.value as EmployeeUser["branch"] } : current)}><option value="Araraquara">Araraquara</option><option value="São Carlos">São Carlos</option></select></label>
-              <label><span>{editor.id === null ? "Senha" : "Nova senha (opcional)"}</span><input type="password" value={editor.password} onChange={(event) => setEditor((current) => current ? { ...current, password: event.target.value } : current)} placeholder={editor.id === null ? "Mínimo de 8 caracteres" : "Deixe em branco para manter"} autoComplete="new-password" minLength={editor.id === null || editor.password ? 8 : undefined} maxLength={120} required={editor.id === null} /></label>
-              <label><span>Confirmar senha</span><input type="password" value={editor.confirmPassword} onChange={(event) => setEditor((current) => current ? { ...current, confirmPassword: event.target.value } : current)} placeholder="Repita a senha" autoComplete="new-password" minLength={editor.id === null || editor.password ? 8 : undefined} maxLength={120} required={editor.id === null || Boolean(editor.password)} /></label>
-              <div className="account-editor-actions"><button className="button ghost account-cancel" type="button" onClick={closeEditor} disabled={editorBusy}>Cancelar</button><button className="button primary" type="submit" disabled={editorBusy}>{editorBusy ? "Salvando…" : editor.id === null ? "Criar funcionário" : "Salvar alterações"}<span>→</span></button></div>
-            </form>
-          </section>
-        )}
-
-        {selectedAccount && (
-          <section className="account-detail" aria-live="polite">
-            <div className="account-detail-head">
-              <div>
-                <span className="section-kicker">REGISTROS DA CONTA</span>
-                <h2>{selectedAccount.displayName}</h2>
-                <p>{selectedAccount.username} · {selectedAccount.branch}</p>
-              </div>
-              <button className="text-button" type="button" onClick={closeAccountDetails}>Fechar <span>×</span></button>
-            </div>
-            {detailsLoading ? (
-              <div className="account-empty">Abrindo registros…</div>
-            ) : detailsError ? (
-              <div className="auth-error" role="alert">{detailsError}</div>
-            ) : (
-              <>
-                <div className="account-performance-grid">
-                  <article><span>Aprendizado</span><strong>{selectedSummary.learningIndex}/100</strong><small>{selectedSummary.rounds ? `${selectedSummary.rounds} rodadas · média ${selectedSummary.averageScore}/10` : "Treinamento ainda não iniciado"}</small></article>
-                  <article><span>Melhor resultado</span><strong>{selectedSummary.bestScore ? `${selectedSummary.bestScore}/10` : "—"}</strong><small>{selectedSummary.scenariosPracticed} cenários praticados</small></article>
-                  <article><span>Carteira informada</span><strong>{selectedSummary.quotes}</strong><small>{selectedSummary.closed} vendas fechadas</small></article>
-                  <article><span>Ações abertas</span><strong>{selectedSummary.pendingFollowUps}</strong><small>{selectedSummary.preparedFactoryItems} itens preparados para fábrica</small></article>
-                </div>
-                {stateEntries.length === 0 ? (
-                  <div className="account-empty">Esta conta ainda não possui registros salvos.</div>
-                ) : (
-                  <details className="account-raw-data">
-                    <summary>Ver dados técnicos da conta</summary>
-                    <p>Visualização para auditoria. Os registros continuam isolados e não são combinados com outros funcionários.</p>
-                    <div className="account-state-grid">
-                      {stateEntries.map(([key, value]) => (
-                        <article key={key}>
-                          <span>{key}</span>
-                          <pre>{JSON.stringify(value, null, 2)}</pre>
-                        </article>
-                      ))}
-                    </div>
-                  </details>
-                )}
-              </>
-            )}
-          </section>
-        )}
-      </section>
-    </main>
-  );
-}
-
 export default function Home() {
+  const [messageView, setMessageView] = useState<"compose" | "preview" | "examples">("compose");
+  const [fairView, setFairView] = useState<"compose" | "preview" | "examples">("compose");
   const [authUser, setAuthUser] = useState<EmployeeUser | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
@@ -2141,6 +1768,8 @@ export default function Home() {
       confirmPassword: "",
     });
     setSection("overview");
+    setMessageView("compose");
+    setFairView("compose");
     setSaveStatus("idle");
     setLastSavedAt(null);
     setHydrated(false);
@@ -2426,6 +2055,8 @@ export default function Home() {
             const saved = resume as Record<string, unknown>;
             if (typeof saved.section === "string" && sections.some((item) => item.id === saved.section)) setSection(saved.section as Section);
             if (typeof saved.brand === "string" && Object.hasOwn(brandData, saved.brand)) setBrand(saved.brand as BrandId);
+            if (saved.messageView === "preview" || saved.messageView === "examples") setMessageView(saved.messageView);
+            if (saved.fairView === "preview" || saved.fairView === "examples") setFairView(saved.fairView);
             if (Number.isInteger(saved.salesStep) && Number(saved.salesStep) >= 0 && Number(saved.salesStep) < salesSteps.length) setActiveSalesStep(Number(saved.salesStep));
             if (Number.isInteger(saved.timingStep) && Number(saved.timingStep) >= 0 && Number(saved.timingStep) < timingSteps.length) setActiveTimingStep(Number(saved.timingStep));
             if (Number.isInteger(saved.trainingScenario) && Number(saved.trainingScenario) >= 0 && Number(saved.trainingScenario) < trainingScenarios.length) setActiveTrainingScenario(Number(saved.trainingScenario));
@@ -2583,11 +2214,11 @@ export default function Home() {
   useEffect(() => {
     if (!IS_GITHUB_PAGES || !authUserId || !hydrated || !dataLoaded) return;
     writeScopedLocalState(authUserId, "resume-v1", {
-      section, brand, salesStep: activeSalesStep, timingStep: activeTimingStep, trainingScenario: activeTrainingScenario,
+      section, brand, messageView, fairView, salesStep: activeSalesStep, timingStep: activeTimingStep, trainingScenario: activeTrainingScenario,
       factoryWizardStep, factoryWizardDraft,
       trainingStarted, trainingMessages: trainingMessages.map(({ role, text }) => ({ role, text })).slice(-24), trainingInput,
     });
-  }, [authUserId, hydrated, dataLoaded, section, brand, activeSalesStep, activeTimingStep, activeTrainingScenario, factoryWizardStep, factoryWizardDraft, trainingStarted, trainingMessages, trainingInput]);
+  }, [authUserId, hydrated, dataLoaded, section, brand, messageView, fairView, activeSalesStep, activeTimingStep, activeTrainingScenario, factoryWizardStep, factoryWizardDraft, trainingStarted, trainingMessages, trainingInput]);
 
   useEffect(() => {
     if (IS_GITHUB_PAGES || !authUserId) return;
@@ -3592,57 +3223,44 @@ export default function Home() {
     return <AuthScreen mode={authMode} setMode={(mode) => { setAuthMode(mode); setAuthError(""); }} form={authForm} setForm={setAuthForm} error={authError} busy={authBusy} adminSetupAvailable={adminSetupAvailable} onSubmit={handleAuthSubmit} />;
   }
 
-  if (isAdmin) return <AccountCenter onLogout={handleLogout} externalError={authError} />;
+  if (isAdmin) return <AccountCenter onLogout={handleLogout} externalError={authError} isGithubPages={IS_GITHUB_PAGES} request={apiFetch} />;
   if (!authUser) return null;
 
+  const currentGroup = workspaceGroups.find((group) => group.sections.includes(section)) ?? workspaceGroups[0];
+  const pendingFollowUps = followUps.filter((item) => !item.done).slice(0, 3);
+  const firstName = authUser.displayName.trim().split(/\s+/)[0];
+
   return (
-    <main className="app-shell">
-      <aside className="sidebar">
-        <div className="brand-lockup">
-          <div className="brand-mark">MP</div>
-          <div>
-            <div className="brand-name">MULT PORTAS</div>
-            <div className="brand-sub">Guia comercial interno</div>
-          </div>
-        </div>
-
-        <div className="sidebar-label">Navegação</div>
-        <nav className="sidebar-nav" aria-label="Navegação principal">
-          {sections.map((item) => (
-            <button key={item.id} className={`nav-item ${section === item.id ? "active" : ""}`} onClick={() => navigate(item.id)} aria-current={section === item.id ? "page" : undefined}>
-              <span className="nav-icon">{item.icon}</span>
-              <span className="nav-text"><strong>{item.label}</strong><small>{item.description}</small></span>
-              {item.id === "control" && <span className="nav-count">{openActionCount}</span>}
-            </button>
-          ))}
+    <main className="workspace-app">
+      <a className="workspace-skip" href="#workspace-main">Ir para o conteúdo</a>
+      <header className="workspace-masthead">
+        <button className="workspace-brand" type="button" onClick={() => navigate("overview")} aria-label="Mult Portas, página inicial">
+          <span className="workspace-monogram">M<span>P</span></span>
+          <span><strong>mult portas</strong><small>ESPAÇO DA EQUIPE</small></span>
+        </button>
+        <nav className="workspace-nav" aria-label="Navegação principal">
+          {workspaceGroups.map((group) => <button key={group.id} type="button" className={`workspace-nav-item ${currentGroup.id === group.id ? "active" : ""}`} aria-current={currentGroup.id === group.id ? "page" : undefined} onClick={() => navigate(group.sections[0])}><WorkspaceIcon name={group.icon} /><span>{group.label}</span>{group.id === "operate" && openActionCount > 0 && <b>{openActionCount}</b>}</button>)}
         </nav>
-
-        <div className="sidebar-bottom">
-          <div className="source-mini">
-            <span className="live-dot" />
-            <div><strong>Base estudada</strong><small>{studiedCatalogCount} catálogos · {studiedBrandCount} marcas</small></div>
-          </div>
-          <div className="sidebar-foot">{IS_GITHUB_PAGES ? "Dados desta conta neste aparelho" : "Dados separados por funcionário"} · {today}</div>
+        <div className="workspace-user">
+          <span className="workspace-avatar">{firstName.slice(0, 1).toUpperCase()}</span>
+          <span className="workspace-user-copy"><strong>{firstName}</strong><small>{authUser.branch}</small></span>
+          <button className="profile-button" type="button" ref={profileTriggerRef} onClick={openProfileEditor}>Meu perfil</button>
+          <button className="logout-button" type="button" onClick={handleLogout}>Sair</button>
         </div>
-      </aside>
+      </header>
+      <div className="workspace-toolbar">
+        <nav className="workspace-subnav" aria-label={`Módulos de ${currentGroup.label}`}>
+          {currentGroup.sections.map((id) => { const item = sections.find((entry) => entry.id === id)!; return <button key={id} type="button" className={section === id ? "active" : ""} aria-current={section === id ? "page" : undefined} onClick={() => navigate(id)}>{item.label}{id === "control" && <span>{openActionCount}</span>}</button>; })}
+        </nav>
+        <div className="workspace-status">
+          <span className={`save-status ${saveStatus}`} role="status" aria-live="polite"><i />{saveStatusLabel}</span>
+          {saveStatus === "conflict" && <button className="sync-reload-button" type="button" onClick={reloadServerState}>Recarregar dados salvos</button>}
+          {(saveStatus === "error" || saveStatus === "offline") && <button className="sync-reload-button" type="button" onClick={() => { void flushPendingState(); }}>{IS_GITHUB_PAGES ? "Tentar salvar" : "Tentar sincronizar"}</button>}
+          <span>{today}</span>
+        </div>
+      </div>
 
-      <section className="content-shell">
-        <header className="topbar">
-          <div className="mobile-brand"><span className="brand-mark small">MP</span><strong>GUIA MULT PORTAS</strong></div>
-          <div className="breadcrumbs"><span>Mult Portas</span><b>/</b><strong>{sections.find((item) => item.id === section)?.label}</strong></div>
-          <div className="topbar-actions">
-            <span className={`save-status ${saveStatus}`} role="status" aria-live="polite"><i />{saveStatusLabel}</span>
-            {saveStatus === "conflict" && <button className="sync-reload-button" type="button" onClick={reloadServerState}>Recarregar dados salvos</button>}
-            {(saveStatus === "error" || saveStatus === "offline") && <button className="sync-reload-button" type="button" onClick={() => { void flushPendingState(); }}>{IS_GITHUB_PAGES ? "Tentar salvar" : "Tentar sincronizar"}</button>}
-            <span className="date-chip">{today}</span>
-            <div className="user-area">
-              <span className="user-chip">{authUser.displayName.slice(0, 1).toUpperCase()}</span>
-              <div className="user-details"><strong>{authUser.displayName}</strong><small>{authUser.branch} · {authUser.username}</small></div>
-              <button className="profile-button" type="button" ref={profileTriggerRef} onClick={openProfileEditor}>Meu perfil</button>
-              <button className="logout-button" type="button" onClick={handleLogout}>Sair da conta</button>
-            </div>
-          </div>
-        </header>
+      <section className="workspace-content" id="workspace-main" tabIndex={-1}>
 
         {profileOpen && (
           <div className="profile-backdrop" role="presentation" onMouseDown={closeProfileEditor}>
@@ -3666,87 +3284,16 @@ export default function Home() {
           </div>
         )}
 
-        <div className="mobile-nav" aria-label="Navegação rápida">
-          {sections.map((item) => <button key={item.id} className={section === item.id ? "active" : ""} onClick={() => navigate(item.id)} aria-current={section === item.id ? "page" : undefined}>{item.icon} {item.label}</button>)}
-        </div>
-
-        {section === "overview" && (
-          <div className="page-content">
-            <section className="hero-panel">
-              <div className="hero-copy">
-                <div className="eyebrow"><span className="eyebrow-line" /> PAINEL DE COMANDO · MULT PORTAS {authUser.branch.toUpperCase()}</div>
-                <h1>Venda com clareza.<br /><em>Acompanhe sem esquecer.</em></h1>
-                <p>Um guia prático para escolher melhor, retornar no momento certo e transformar cada orçamento em próximo passo.</p>
-                <div className="hero-actions">
-                  <button className="button primary" onClick={() => navigate("script")}>Começar atendimento <span>↗</span></button>
-                  <button className="button ghost" onClick={() => navigate("catalog")}>Pesquisar catálogo <span>⌕</span></button>
-                  <button className="button coach-button" onClick={() => navigate("training")}>Treinar conversa <span>✦</span></button>
-                  <button className="button message-button" onClick={() => navigate("messages")}>Criar mensagem <span>✎</span></button>
-                  <button className="button fair-button" onClick={() => navigate("fair")}>Convite Feirão <span>✉</span></button>
-                  <button className="button factory-button" onClick={() => navigate("factory")}>Requisição fábrica <span>▤</span></button>
-                </div>
-                <div className="hero-proof"><span>✓</span> 41 anos de experiência · atendimento em 85 cidades da região · qualidade e garantia conforme a linha.</div>
-              </div>
-              <div className="hero-visual" aria-hidden="true">
-                <div className="visual-orbit orbit-one" />
-                <div className="visual-orbit orbit-two" />
-                <div className="visual-core"><span>MP</span><small>vendas</small></div>
-                <div className="visual-tag tag-top">MARCAS <b>{String(studiedBrandCount).padStart(2, "0")}</b></div>
-                <div className="visual-tag tag-bottom">ORÇAMENTOS <b>{portfolioCount}</b></div>
-                <div className="visual-line line-one" /><div className="visual-line line-two" />
-              </div>
-            </section>
-
-            <section className="stats-grid" aria-label="Resumo da operação">
-              <article className="stat-card"><div className="stat-top"><span>Carteira registrada</span><span className="stat-icon gray">⌁</span></div><strong>{portfolioCount}</strong><small>orçamentos informados na sua conta</small></article>
-              <article className="stat-card"><div className="stat-top"><span>Com número oficial</span><span className="stat-icon amber">#</span></div><strong>{officialQuoteCount}</strong><small>identificadores preservados</small></article>
-              <article className="stat-card"><div className="stat-top"><span>Incompletos / sem número</span><span className="stat-icon soft">!</span></div><strong>{incompleteQuoteCount}</strong><small>não cobrar sem completar o contexto</small></article>
-              <article className="stat-card dark-stat"><div className="stat-top"><span>Próximo foco</span><span className="stat-icon light">→</span></div><strong>{openActionCount} {openActionCount === 1 ? "ação" : "ações"}</strong><small>{openActionCount ? "medida, decisão ou retorno marcado" : "nenhuma ação pendente"}</small></article>
-            </section>
-
-            <section className="trust-strip" aria-label="Provas institucionais da Mult Portas">
-              <div className="trust-intro"><span className="section-kicker">COMO APRESENTAR A EMPRESA</span><h2>Confiança que cabe em uma frase.</h2><p>Use estes pontos para abrir a conversa com segurança, sem transformar o atendimento em discurso pronto.</p></div>
-              <div className="trust-facts"><div><strong>41</strong><span>anos de experiência</span></div><div><strong>85</strong><span>cidades atendidas</span></div><div><strong>✓</strong><span>qualidade e garantia por linha</span></div></div>
-              <button className="button dark" onClick={() => navigate("messages")}>Usar na mensagem <span>✎</span></button>
-            </section>
-
-            <section className="overview-grid">
-              <article className="panel next-panel">
-                <div className="panel-heading"><div><span className="section-kicker">AGORA</span><h2>O que fazer em seguida</h2></div><button className="text-button" onClick={() => navigate("control")}>Abrir controle <span>→</span></button></div>
-                <div className="next-list">
-                  <div className="next-row"><span className="number-dot">01</span><div><strong>Qualifique antes de indicar</strong><p>Ambiente, objetivo, medida, quantidade e prazo.</p></div><button onClick={() => navigate("script")}>Ver roteiro</button></div>
-                  <div className="next-row"><span className="number-dot">02</span><div><strong>Faça o retorno com motivo</strong><p>Não é “só passando”; é resolver uma dúvida.</p></div><button onClick={() => navigate("timing")}>Ver timing</button></div>
-                  <div className="next-row"><span className="number-dot">03</span><div><strong>Complete o cadastro</strong><p>Valores e status exatos; desconhecido fica “A confirmar”.</p></div><button onClick={() => navigate("control")}>Registrar</button></div>
-                  <div className="next-row"><span className="number-dot">04</span><div><strong>Prepare a requisição técnica</strong><p>Uma linha por item, sem misturar consulta de fábrica com venda.</p></div><button onClick={() => navigate("factory")}>Montar</button></div>
-                </div>
-              </article>
-              <article className="panel progress-panel">
-                <div className="panel-heading"><div><span className="section-kicker">EVOLUÇÃO</span><h2>Seu nível de atendimento</h2></div><span className="progress-value">{completedSales}/5</span></div>
-                <div className="progress-track"><span style={{ width: `${(completedSales / salesSteps.length) * 100}%` }} /></div>
-                <p className="progress-copy">Marque cada etapa conforme você aplica. O objetivo é sair do “tirar preço” para conduzir a decisão.</p>
-                <div className="level-row"><span className="level active">Básico</span><span className={completedSales >= 2 ? "level active" : "level"}>Seguro</span><span className={completedSales >= 4 ? "level active" : "level"}>Consultivo</span><span className={completedSales === 5 ? "level active" : "level"}>Gestor</span></div>
-                <button className="button dark full" onClick={() => navigate("script")}>Continuar trilha <span>→</span></button>
-              </article>
-            </section>
-
-            <section className="catalog-strip">
-              <div><span className="section-kicker">BASE DE PRODUTO</span><h2>{studiedBrandCount} marcas. Uma lógica de indicação.</h2><p>Comece pelo problema do cliente; use a marca como solução, não como lista infinita.</p></div>
-              <div className="brand-pills">{(Object.keys(brandData) as BrandId[]).map((id) => <button key={id} style={{ "--brand-accent": brandData[id].accent } as React.CSSProperties} onClick={() => { selectBrand(id); navigate("catalog"); }}><span className="pill-dot" />{brandData[id].short}<small>{brandData[id].descriptor}</small></button>)}</div>
-            </section>
-          </div>
-        )}
+        {section === "overview" && <HomeWorkspace firstName={firstName} branch={authUser.branch} brands={brandData} brand={brand} portfolioCount={portfolioCount} officialQuoteCount={officialQuoteCount} incompleteQuoteCount={incompleteQuoteCount} openActionCount={openActionCount} completedSales={completedSales} learningMetric={learningMetric} studiedBrandCount={studiedBrandCount} studiedCatalogCount={studiedCatalogCount} pending={pendingFollowUps} onNavigate={navigate} onSelectBrand={selectBrand} />}
 
         {section === "script" && (
           <div className="page-content">
-            <div className="section-intro"><div><span className="eyebrow"><span className="eyebrow-line" /> TRILHA DE ATENDIMENTO</span><h1>Do primeiro “quanto custa?”<br /><em>até a decisão.</em></h1><p>Use as perguntas na ordem. Quanto melhor o diagnóstico, menos o atendimento vira disputa de preço.</p></div><div className="intro-badge"><strong>{completedSales}/05</strong><span>etapas marcadas</span></div></div>
-            <section className="opening-section panel">
-              <div className="opening-heading"><div><span className="section-kicker">RECOMENDAÇÕES DE INICIAÇÃO</span><h2>Comece a conversa com intenção.</h2><p>Escolha a situação mais parecida com o atendimento e use a frase como ponto de partida. Depois, adapte ao que o cliente responder.</p></div><button className="text-button" onClick={() => navigate("messages")}>Abrir planejador <span>→</span></button></div>
-              <div className="opening-grid">{openingRecommendations.map((item) => <article className="opening-card" key={item.id}><span className="opening-tag">{item.tag}</span><h3>{item.title}</h3><p>{item.advice}</p><div className="opening-message">“{item.message}”</div><button className="copy-button" onClick={() => copyMessage(item.message)}>Copiar início <span>⧉</span></button></article>)}</div>
-            </section>
-            <div className="script-layout">
-              <div className="step-list">
+            <div className="section-intro"><div><span className="eyebrow"><span className="eyebrow-line" /> TRILHA DE ATENDIMENTO</span><h1>Roteiro de venda</h1><p className="module-caption">Do primeiro contato a uma decisão bem conduzida.</p><p>Use as perguntas na ordem. Quanto melhor o diagnóstico, menos o atendimento vira disputa de preço.</p></div><div className="intro-badge"><strong>{completedSales}/05</strong><span>etapas marcadas</span></div></div>
+
+            <div className="script-layout sales-workbench">
+              <div className="step-list" role="group" aria-label="Etapas do roteiro">
                 <div className="step-line" />
-                {salesSteps.map((step, index) => <button key={step.id} className={`step-item ${activeSalesStep === index ? "active" : ""} ${doneSales.includes(step.id) ? "done" : ""}`} onClick={() => setActiveSalesStep(index)}><span className="step-bullet">{doneSales.includes(step.id) ? "✓" : step.level}</span><span><strong>{step.title}</strong><small>{step.subtitle}</small></span><span className="step-arrow">→</span></button>)}
+                {salesSteps.map((step, index) => <button key={step.id} className={`step-item ${activeSalesStep === index ? "active" : ""} ${doneSales.includes(step.id) ? "done" : ""}`} aria-pressed={activeSalesStep === index} onClick={() => setActiveSalesStep(index)}><span className="step-bullet">{doneSales.includes(step.id) ? "✓" : step.level}</span><span><strong>{step.title}</strong><small>{step.subtitle}</small></span><span className="step-arrow">→</span></button>)}
               </div>
               <article className="script-detail panel">
                 <div className="detail-top"><div><span className="section-kicker">ETAPA {activeSales.level}</span><h2>{activeSales.title}</h2><p>{activeSales.subtitle}</p></div><span className="detail-index">0{activeSalesStep + 1}</span></div>
@@ -3757,18 +3304,22 @@ export default function Home() {
               </article>
             </div>
             <div className="principles-grid"><article><span>01</span><strong>Não invente lacunas</strong><p>Sem medida, valor ou modelo confirmado, registre “A confirmar”.</p></article><article><span>02</span><strong>Uma prioridade por vez</strong><p>Cliente tem um status principal; o histórico continua separado.</p></article><article><span>03</span><strong>Venda a solução</strong><p>Kit, batente, guarnição, rodapé e complementos entram quando fizerem sentido.</p></article></div>
+            <details className="module-reference"><summary>Modelos para começar a conversa <span>+</span></summary><section className="opening-section panel">
+              <div className="opening-heading"><div><span className="section-kicker">RECOMENDAÇÕES DE INICIAÇÃO</span><h2>Comece a conversa com intenção.</h2><p>Escolha a situação mais parecida com o atendimento e use a frase como ponto de partida. Depois, adapte ao que o cliente responder.</p></div><button className="text-button" onClick={() => navigate("messages")}>Abrir planejador <span>→</span></button></div>
+              <div className="opening-grid">{openingRecommendations.map((item) => <article className="opening-card" key={item.id}><span className="opening-tag">{item.tag}</span><h3>{item.title}</h3><p>{item.advice}</p><div className="opening-message">“{item.message}”</div><button className="copy-button" onClick={() => copyMessage(item.message)}>Copiar início <span>⧉</span></button></article>)}</div>
+            </section></details>
           </div>
         )}
 
         {section === "seller" && (
           <div className="page-content">
-            <div className="section-intro seller-intro"><div><span className="eyebrow"><span className="eyebrow-line" /> DESENVOLVIMENTO DO FUNCIONÁRIO</span><h1>Ser um bom vendedor<br /><em>é conduzir bem.</em></h1><p>Venda não é falar mais. É entender o cliente, organizar a solução e deixar claro qual é o próximo passo.</p></div><div className="seller-score"><strong>06</strong><span>hábitos para praticar</span><small>um atendimento por vez</small></div></div>
+            <div className="section-intro seller-intro"><div><span className="eyebrow"><span className="eyebrow-line" /> DESENVOLVIMENTO DO FUNCIONÁRIO</span><h1>Desenvolva seu atendimento</h1><p className="module-caption">Seis hábitos para conduzir a conversa com segurança.</p><p>Venda não é falar mais. É entender o cliente, organizar a solução e deixar claro qual é o próximo passo.</p></div><div className="seller-score"><strong>06</strong><span>hábitos para praticar</span><small>um atendimento por vez</small></div></div>
 
             <section className="seller-hero panel"><div><span className="section-kicker">A REGRA PRINCIPAL</span><h2>Antes de oferecer, entenda.</h2><p>O cliente não procura apenas uma porta ou uma janela. Ele procura segurança para escolher certo, evitar retrabalho e fazer a obra avançar.</p></div><div className="seller-hero-quote">“Quem pergunta melhor, indica melhor.”</div></section>
 
-            <section className="seller-pillars"><article><span>01</span><h3>Ouça de verdade</h3><p>Não interrompa. Anote ambiente, medida, objetivo, quantidade e prazo.</p><strong>Pratique:</strong><small>repita o que entendeu antes de apresentar.</small></article><article><span>02</span><h3>Faça perguntas</h3><p>Perguntas evitam indicação errada e mostram que você está cuidando da compra.</p><strong>Pratique:</strong><small>faça pelo menos três perguntas antes do preço.</small></article><article><span>03</span><h3>Explique com clareza</h3><p>Troque termos difíceis por benefícios que o cliente consegue visualizar.</p><strong>Pratique:</strong><small>fale uma ideia por vez e confirme se ficou claro.</small></article><article><span>04</span><h3>Seja preciso</h3><p>Não invente medida, valor, estoque, garantia ou prazo. Use “A confirmar” quando necessário.</p><strong>Pratique:</strong><small>confirme a informação antes de prometer.</small></article><article><span>05</span><h3>Defenda valor</h3><p>Preço faz sentido quando o cliente entende o que está incluso e por que a opção atende.</p><strong>Pratique:</strong><small>compare solução, acabamento, qualidade e pós-venda.</small></article><article><span>06</span><h3>Conduza o próximo passo</h3><p>Todo atendimento precisa terminar com uma ação: medida, escolha, retorno ou fechamento.</p><strong>Pratique:</strong><small>combine quem fará o quê e quando.</small></article></section>
 
-            <div className="seller-practice-grid"><section className="panel seller-routine"><div className="panel-heading"><div><span className="section-kicker">ROTINA DE 10 MINUTOS</span><h2>Treino diário do vendedor</h2></div><span className="seller-routine-badge">TODOS OS DIAS</span></div><div className="seller-routine-list"><div><b>02 min</b><span>Leia um produto e explique em voz alta para qual ambiente ele serve.</span></div><div><b>03 min</b><span>Treine uma abertura: cumprimente, pergunte e confirme a necessidade.</span></div><div><b>03 min</b><span>Responda a uma objeção sem discutir: acolha, explique e devolva uma pergunta.</span></div><div><b>02 min</b><span>Revise um atendimento e registre o que faltou para o próximo passo.</span></div></div><button className="button dark" onClick={() => navigate("training")}>Praticar no treino de conversa <span>✦</span></button></section><section className="panel seller-language"><span className="section-kicker">FRASES QUE AJUDAM</span><h2>Fale como consultor.</h2><div className="seller-phrase"><span>ABERTURA</span><p>“Para eu te indicar a opção certa, posso entender primeiro o ambiente e as medidas?”</p><button className="copy-button" onClick={() => copyMessage("Para eu te indicar a opção certa, posso entender primeiro o ambiente e as medidas?")}>Copiar frase <span>⧉</span></button></div><div className="seller-phrase"><span>OBJEÇÃO DE PREÇO</span><p>“Entendo. Vamos comparar o que está incluso para você ver qual opção realmente atende melhor.”</p><button className="copy-button" onClick={() => copyMessage("Entendo. Vamos comparar o que está incluso para você ver qual opção realmente atende melhor.")}>Copiar frase <span>⧉</span></button></div><div className="seller-phrase"><span>FECHAMENTO</span><p>“Se essa opção atende ao que você precisa, o próximo passo é confirmarmos a medida e a cor, certo?”</p><button className="copy-button" onClick={() => copyMessage("Se essa opção atende ao que você precisa, o próximo passo é confirmarmos a medida e a cor, certo?")}>Copiar frase <span>⧉</span></button></div></section></div>
+
+            <div className="seller-manual"><aside className="seller-practice-aside"><section className="panel seller-routine"><div className="panel-heading"><div><span className="section-kicker">ROTINA DE 10 MINUTOS</span><h2>Treino diário do vendedor</h2></div><span className="seller-routine-badge">TODOS OS DIAS</span></div><div className="seller-routine-list"><div><b>02 min</b><span>Leia um produto e explique em voz alta para qual ambiente ele serve.</span></div><div><b>03 min</b><span>Treine uma abertura: cumprimente, pergunte e confirme a necessidade.</span></div><div><b>03 min</b><span>Responda a uma objeção sem discutir: acolha, explique e devolva uma pergunta.</span></div><div><b>02 min</b><span>Revise um atendimento e registre o que faltou para o próximo passo.</span></div></div><button className="button dark" onClick={() => navigate("training")}>Praticar no treino de conversa <span>✦</span></button></section></aside><div className="seller-manual-main"><section className="seller-pillars"><details className="seller-habit"><summary><span>01</span><h3>Ouça de verdade</h3><b>+</b></summary><div><p>Não interrompa. Anote ambiente, medida, objetivo, quantidade e prazo.</p><strong>Pratique:</strong><small>repita o que entendeu antes de apresentar.</small></div></details><details className="seller-habit"><summary><span>02</span><h3>Faça perguntas</h3><b>+</b></summary><div><p>Perguntas evitam indicação errada e mostram que você está cuidando da compra.</p><strong>Pratique:</strong><small>faça pelo menos três perguntas antes do preço.</small></div></details><details className="seller-habit"><summary><span>03</span><h3>Explique com clareza</h3><b>+</b></summary><div><p>Troque termos difíceis por benefícios que o cliente consegue visualizar.</p><strong>Pratique:</strong><small>fale uma ideia por vez e confirme se ficou claro.</small></div></details><details className="seller-habit"><summary><span>04</span><h3>Seja preciso</h3><b>+</b></summary><div><p>Não invente medida, valor, estoque, garantia ou prazo. Use “A confirmar” quando necessário.</p><strong>Pratique:</strong><small>confirme a informação antes de prometer.</small></div></details><details className="seller-habit"><summary><span>05</span><h3>Defenda valor</h3><b>+</b></summary><div><p>Preço faz sentido quando o cliente entende o que está incluso e por que a opção atende.</p><strong>Pratique:</strong><small>compare solução, acabamento, qualidade e pós-venda.</small></div></details><details className="seller-habit"><summary><span>06</span><h3>Conduza o próximo passo</h3><b>+</b></summary><div><p>Todo atendimento precisa terminar com uma ação: medida, escolha, retorno ou fechamento.</p><strong>Pratique:</strong><small>combine quem fará o quê e quando.</small></div></details></section><section className="panel seller-language"><span className="section-kicker">FRASES QUE AJUDAM</span><h2>Fale como consultor.</h2><div className="seller-phrase"><span>ABERTURA</span><p>“Para eu te indicar a opção certa, posso entender primeiro o ambiente e as medidas?”</p><button className="copy-button" onClick={() => copyMessage("Para eu te indicar a opção certa, posso entender primeiro o ambiente e as medidas?")}>Copiar frase <span>⧉</span></button></div><div className="seller-phrase"><span>OBJEÇÃO DE PREÇO</span><p>“Entendo. Vamos comparar o que está incluso para você ver qual opção realmente atende melhor.”</p><button className="copy-button" onClick={() => copyMessage("Entendo. Vamos comparar o que está incluso para você ver qual opção realmente atende melhor.")}>Copiar frase <span>⧉</span></button></div><div className="seller-phrase"><span>FECHAMENTO</span><p>“Se essa opção atende ao que você precisa, o próximo passo é confirmarmos a medida e a cor, certo?”</p><button className="copy-button" onClick={() => copyMessage("Se essa opção atende ao que você precisa, o próximo passo é confirmarmos a medida e a cor, certo?")}>Copiar frase <span>⧉</span></button></div></section></div></div>
 
             <section className="seller-avoid panel"><div className="seller-avoid-head"><span className="section-kicker">CHECKLIST ANTES DE ENVIAR O ORÇAMENTO</span><h2>Um bom atendimento deixa o cliente seguro.</h2></div><div className="seller-checks"><span>✓ Eu entendi o ambiente e o objetivo.</span><span>✓ Confirmei medidas, abertura e quantidade.</span><span>✓ Expliquei o que está incluso.</span><span>✓ Mantive valores e prazos exatamente como confirmados.</span><span>✓ Combinei o próximo passo e o momento do retorno.</span></div><button className="button primary" onClick={() => navigate("script")}>Abrir roteiro completo <span>→</span></button></section>
           </div>
@@ -3779,43 +3330,23 @@ export default function Home() {
             <div className="section-intro training-intro">
               <div>
                 <span className="eyebrow"><span className="eyebrow-line" /> LABORATÓRIO DE CONVERSA</span>
-                <h1>Venda melhor<br /><em>na prática.</em></h1>
+                <h1>Treino de conversa</h1><p className="module-caption">Escolha um cenário, responda ao cliente e revise sua condução.</p>
                 <p>Treine respostas para situações reais da Mult Portas. O cliente simulado reage, o treinador avalia e você aprende a conduzir sem inventar informação.</p>
               </div>
               <div className="training-score-card"><span>ÍNDICE DE APRENDIZADO</span><strong>{learningMetric}<small>/100</small></strong><small>{learningStage}{trainingScores.length ? ` · média ${trainingAverage.toFixed(1)}/10` : " · comece a primeira rodada"}</small><small>{trainingStats.rounds} rodada{trainingStats.rounds === 1 ? "" : "s"} · melhor {trainingStats.best ? `${trainingStats.best}/10` : "—"}</small></div>
             </div>
 
-            <section className="training-hero panel">
-              <div className="training-hero-main"><div className="coach-pulse"><span>◉</span></div><div><span className="section-kicker">ASSISTENTE DE TREINO COMERCIAL</span><h2>O cliente reage ao que você fala — agora com voz.</h2><p>Fale como no WhatsApp, revise a transcrição, ouça o cliente simulado e receba uma leitura específica do que ele entendeu, do que falta e do próximo passo.</p></div></div>
-              <div className="training-feature-list"><span><b>01</b> Fale como no atendimento real</span><span><b>02</b> O cliente responde ao seu conteúdo</span><span><b>03</b> Receba nota e próximo movimento</span></div>
-            </section>
 
-            <section className="learning-metric panel" aria-labelledby="learning-metric-title">
-              <div className="learning-metric-copy">
-                <span className="section-kicker">EVOLUÇÃO DO FUNCIONÁRIO</span>
-                <h2 id="learning-metric-title">Seu aprendizado está sendo acompanhado.</h2>
-                <p>O índice combina desempenho nas respostas, variedade de cenários praticados e constância. Ele é individual e fica salvo junto da sua conta.</p>
-                <div className="learning-progress" role="progressbar" aria-label="Índice de aprendizado" aria-valuemin={0} aria-valuemax={100} aria-valuenow={learningMetric}>
-                  <span style={{ width: `${learningMetric}%` }} />
-                </div>
-                <small>{trainingScores.length ? (trainingTrend > 0.2 ? `Tendência de alta: +${trainingTrend.toFixed(1)} ponto${trainingTrend >= 1 ? "s" : ""} nas últimas respostas.` : trainingTrend < -0.2 ? `Atenção: a média recente caiu ${Math.abs(trainingTrend).toFixed(1)} ponto${Math.abs(trainingTrend) >= 1 ? "s" : ""}. Revise os ajustes do treinador.` : "Tendência estável nas últimas respostas.") : "Faça uma rodada para começar a acompanhar sua evolução."}</small>
-                <div className="learning-focus"><span>FOCO RECOMENDADO</span><strong>{weakestTrainingSkill ? weakestTrainingSkill.label : "Comece pelo acolhimento e diagnóstico"}</strong><small>{weakestTrainingSkill ? `${weakestTrainingSkill.hint} · média ${averageTrainingSkills[weakestTrainingSkill.id]}/10` : "A recomendação muda conforme suas respostas forem avaliadas."}</small></div>
-              </div>
-              <div className="learning-metric-grid">
-                <div><strong>{trainingScores.length ? trainingAverage.toFixed(1) : "—"}</strong><span>média das notas</span></div>
-                <div><strong>{trainingStats.scenarios.length}/{trainingScenarios.length}</strong><span>cenários praticados</span></div>
-                <div><strong>{trainingStats.best ? `${trainingStats.best}/10` : "—"}</strong><span>melhor nota</span></div>
-                <div><strong>{masteredScenarios}</strong><span>cenários dominados</span></div>
-              </div>
-            </section>
+
+
 
             <div className="training-layout">
-              <aside className="training-scenarios panel">
+              <details className="training-scenarios panel" open={!trainingStarted}><summary className="training-scenario-summary"><span><small>CENÁRIOS DE TREINO</small><strong>{currentTrainingScenario.title}</strong></span><span>Trocar cenário +</span></summary>
                 <div className="panel-heading"><div><span className="section-kicker">CENÁRIOS</span><h2>Escolha sua situação</h2></div><span className="training-count">{visibleTrainingScenarios.length}/{trainingScenarios.length}</span></div>
                 <div className="training-filters" role="tablist" aria-label="Filtrar cenários por nível">{(["Todos", "Básico", "Intermediário", "Avançado"] as TrainingFilter[]).map((level) => <button key={level} className={trainingLevelFilter === level ? "active" : ""} onClick={() => selectTrainingLevel(level)} role="tab" aria-selected={trainingLevelFilter === level} disabled={trainingBusy}>{level}</button>)}</div>
                 <div className="scenario-list">{visibleTrainingScenarios.map((scenario) => { const index = trainingScenarios.findIndex((item) => item.id === scenario.id); return <button key={scenario.id} className={`scenario-card ${activeTrainingScenario === index ? "active" : ""}`} onClick={() => { setActiveTrainingScenario(index); if (trainingStarted) startTraining(index); }} aria-pressed={activeTrainingScenario === index} disabled={trainingBusy}><span className={`scenario-level ${priorityClass(scenario.level === "Básico" ? "Baixa" : scenario.level === "Intermediário" ? "Média" : "Alta")}`}>{scenario.level}</span><span className="scenario-copy"><strong>{scenario.title}</strong><small>{scenario.tag} · {scenario.objective}</small></span><span className="scenario-arrow">→</span></button>; })}</div>
                 <div className="scenario-note"><span>✦</span><p>Comece pelo básico e avance quando conseguir conduzir a conversa sem correr para o preço.</p></div>
-              </aside>
+              </details>
 
               <section className="training-workspace panel">
                 {!trainingStarted ? (
@@ -3846,27 +3377,51 @@ export default function Home() {
             {trainingFeedback && <section className="training-coach-detail panel" aria-label="Mapa de competências da resposta"><div className="training-coach-detail-head"><div><span className="section-kicker">DEBRIEF PROFISSIONAL</span><h2>{trainingFeedback.phase}</h2></div><span className="training-coach-mode">{trainingFeedback.mode === "contextual" ? "análise contextual" : "análise guiada"}</span></div><small className="training-coach-average">Média acumulada das habilidades: {Math.round((averageTrainingSkills.acolhimento + averageTrainingSkills.diagnostico + averageTrainingSkills.precisao + averageTrainingSkills.valor + averageTrainingSkills.proximoPasso) / 5)}/10</small><div className="training-skills-grid">{trainingSkillMeta.map((skill) => <div className="training-skill" key={skill.id}><div><strong>{skill.label}</strong><span>{trainingFeedback.skillScores[skill.id]}/10</span></div><small>{skill.hint}</small><div className="training-skill-bar"><span style={{ width: `${trainingFeedback.skillScores[skill.id] * 10}%` }} /></div></div>)}</div><div className="training-reflection-grid"><div><span className="mini-label">PERGUNTA DE REFLEXÃO</span><p>{trainingFeedback.coachQuestion}</p></div><div><span className="mini-label">COMO TENTAR DE NOVO</span><p>{trainingFeedback.retryGuide}</p></div></div></section>}
 
             <section className="training-rules"><div><span>01</span><strong>Diagnóstico antes do preço</strong><p>Descubra ambiente, objetivo, medida, quantidade e prazo.</p></div><div><span>02</span><strong>Valor com contexto</strong><p>Compare o que está incluso e separe principal, alternativa e “A confirmar”.</p></div><div><span>03</span><strong>Próximo passo claro</strong><p>Todo atendimento termina com ação, responsável e timing definidos.</p></div></section>
+            <div className="training-reference-grid"><details className="module-reference"><summary>Como funciona o treino <span>+</span></summary><section className="training-hero panel">
+              <div className="training-hero-main"><div className="coach-pulse"><span>◉</span></div><div><span className="section-kicker">ASSISTENTE DE TREINO COMERCIAL</span><h2>O cliente reage ao que você fala — agora com voz.</h2><p>Fale como no WhatsApp, revise a transcrição, ouça o cliente simulado e receba uma leitura específica do que ele entendeu, do que falta e do próximo passo.</p></div></div>
+              <div className="training-feature-list"><span><b>01</b> Fale como no atendimento real</span><span><b>02</b> O cliente responde ao seu conteúdo</span><span><b>03</b> Receba nota e próximo movimento</span></div>
+            </section></details><details className="module-reference"><summary>Meu progresso e competências <span>+</span></summary><section className="learning-metric panel" aria-labelledby="learning-metric-title">
+              <div className="learning-metric-copy">
+                <span className="section-kicker">EVOLUÇÃO DO FUNCIONÁRIO</span>
+                <h2 id="learning-metric-title">Seu aprendizado está sendo acompanhado.</h2>
+                <p>O índice combina desempenho nas respostas, variedade de cenários praticados e constância. Ele é individual e fica salvo junto da sua conta.</p>
+                <div className="learning-progress" role="progressbar" aria-label="Índice de aprendizado" aria-valuemin={0} aria-valuemax={100} aria-valuenow={learningMetric}>
+                  <span style={{ width: `${learningMetric}%` }} />
+                </div>
+                <small>{trainingScores.length ? (trainingTrend > 0.2 ? `Tendência de alta: +${trainingTrend.toFixed(1)} ponto${trainingTrend >= 1 ? "s" : ""} nas últimas respostas.` : trainingTrend < -0.2 ? `Atenção: a média recente caiu ${Math.abs(trainingTrend).toFixed(1)} ponto${Math.abs(trainingTrend) >= 1 ? "s" : ""}. Revise os ajustes do treinador.` : "Tendência estável nas últimas respostas.") : "Faça uma rodada para começar a acompanhar sua evolução."}</small>
+                <div className="learning-focus"><span>FOCO RECOMENDADO</span><strong>{weakestTrainingSkill ? weakestTrainingSkill.label : "Comece pelo acolhimento e diagnóstico"}</strong><small>{weakestTrainingSkill ? `${weakestTrainingSkill.hint} · média ${averageTrainingSkills[weakestTrainingSkill.id]}/10` : "A recomendação muda conforme suas respostas forem avaliadas."}</small></div>
+              </div>
+              <div className="learning-metric-grid">
+                <div><strong>{trainingScores.length ? trainingAverage.toFixed(1) : "—"}</strong><span>média das notas</span></div>
+                <div><strong>{trainingStats.scenarios.length}/{trainingScenarios.length}</strong><span>cenários praticados</span></div>
+                <div><strong>{trainingStats.best ? `${trainingStats.best}/10` : "—"}</strong><span>melhor nota</span></div>
+                <div><strong>{masteredScenarios}</strong><span>cenários dominados</span></div>
+              </div>
+            </section></details></div>
           </div>
         )}
 
         {section === "timing" && (
           <div className="page-content">
-            <div className="section-intro timing-intro"><div><span className="eyebrow"><span className="eyebrow-line" /> RITMO COMERCIAL</span><h1>O retorno certo<br /><em>na hora certa.</em></h1><p>Timing não é pressionar. É agir enquanto você ainda consegue ajudar o cliente a decidir.</p></div><div className="timing-score"><span className="clock-face">◷</span><div><strong>{completedTiming}/06</strong><small>momentos dominados</small></div></div></div>
-            <div className="timing-layout"><div className="timing-rail">{timingSteps.map((step, index) => <button key={step.id} className={`timing-item ${activeTimingStep === index ? "active" : ""} ${doneTiming.includes(step.id) ? "done" : ""}`} onClick={() => setActiveTimingStep(index)}><span className="timing-dot">{doneTiming.includes(step.id) ? "✓" : index + 1}</span><span><small>{step.when}</small><strong>{step.title}</strong></span></button>)}</div><article className="timing-detail panel"><div className="timing-detail-head"><div><span className={`priority-badge ${priorityClass(activeTiming.priority)}`}>{activeTiming.priority} prioridade</span><h2>{activeTiming.title}</h2><p className="when-label">{activeTiming.when}</p></div><span className="timing-number">{String(activeTimingStep + 1).padStart(2, "0")}</span></div><div className="why-row"><span>POR QUE AGORA?</span><p>{activeTiming.why}</p></div><div className="action-row"><span>COMO AGIR</span><p>{activeTiming.action}</p></div><div className="whatsapp-message"><div className="message-head"><span>MODELO DE MENSAGEM</span><button onClick={() => copyMessage(activeTiming.message)}>Copiar <span>⧉</span></button></div><p>{activeTiming.message}</p></div><div className="timing-footer"><label><input type="checkbox" checked={doneTiming.includes(activeTiming.id)} onChange={() => toggleTiming(activeTiming.id)} /><span className="fake-checkbox">✓</span><b>{doneTiming.includes(activeTiming.id) ? "Retorno registrado" : "Marcar retorno como feito"}</b></label><span className="timing-hint">Substitua os campos entre [colchetes]</span></div></article></div><div className="anti-pressure"><span>✦</span><div><strong>Regra de ouro</strong><p>Não use falsa urgência. Use o cronograma real da obra, a necessidade de medida e a disponibilidade confirmada.</p></div></div>
+            <div className="section-intro timing-intro"><div><span className="eyebrow"><span className="eyebrow-line" /> RITMO COMERCIAL</span><h1>Planeje o retorno</h1><p className="module-caption">O motivo certo, no momento em que você ainda pode ajudar.</p><p>Timing não é pressionar. É agir enquanto você ainda consegue ajudar o cliente a decidir.</p></div><div className="timing-score"><span className="clock-face">◷</span><div><strong>{completedTiming}/06</strong><small>momentos dominados</small></div></div></div>
+            <div className="timing-layout timing-workbench"><div className="timing-rail" role="group" aria-label="Momento do retorno">{timingSteps.map((step, index) => <button key={step.id} className={`timing-item ${activeTimingStep === index ? "active" : ""} ${doneTiming.includes(step.id) ? "done" : ""}`} aria-pressed={activeTimingStep === index} onClick={() => setActiveTimingStep(index)}><span className="timing-dot">{doneTiming.includes(step.id) ? "✓" : index + 1}</span><span><small>{step.when}</small><strong>{step.title}</strong></span></button>)}</div><article className="timing-detail panel"><div className="timing-detail-head"><div><span className={`priority-badge ${priorityClass(activeTiming.priority)}`}>{activeTiming.priority} prioridade</span><h2>{activeTiming.title}</h2><p className="when-label">{activeTiming.when}</p></div><span className="timing-number">{String(activeTimingStep + 1).padStart(2, "0")}</span></div><div className="why-row"><span>POR QUE AGORA?</span><p>{activeTiming.why}</p></div><div className="action-row"><span>COMO AGIR</span><p>{activeTiming.action}</p></div><div className="whatsapp-message"><div className="message-head"><span>MODELO DE MENSAGEM</span><button onClick={() => copyMessage(activeTiming.message)}>Copiar <span>⧉</span></button></div><p>{activeTiming.message}</p></div><div className="timing-footer"><label><input type="checkbox" checked={doneTiming.includes(activeTiming.id)} onChange={() => toggleTiming(activeTiming.id)} /><span className="fake-checkbox">✓</span><b>{doneTiming.includes(activeTiming.id) ? "Retorno registrado" : "Marcar retorno como feito"}</b></label><span className="timing-hint">Substitua os campos entre [colchetes]</span></div></article></div><div className="anti-pressure"><span>✦</span><div><strong>Regra de ouro</strong><p>Não use falsa urgência. Use o cronograma real da obra, a necessidade de medida e a disponibilidade confirmada.</p></div></div>
           </div>
         )}
 
         {section === "messages" && (
           <div className="page-content">
-            <div className="section-intro messages-intro"><div><span className="eyebrow"><span className="eyebrow-line" /> CENTRAL DE MENSAGENS</span><h1>{messageAudience === "Prestador" ? <>Uma boa apresentação.<br /><em>Para abrir parcerias.</em></> : <>Uma mensagem certa.<br /><em>Para cada linha.</em></>}</h1><p>{messageAudience === "Prestador" ? "Escolha com quem vai falar. O texto mantém o cuidado necessário com empresas e usa uma linguagem mais próxima com prestadores de serviço." : "Monte uma abertura curta para WhatsApp ou áudio, com o produto, o ambiente, o objetivo e a próxima pergunta já organizados."}</p></div><div className="message-count"><strong>41</strong><span>anos para transmitir confiança</span><small>85 cidades atendidas</small></div></div>
+            <div className="section-intro messages-intro"><div><span className="eyebrow"><span className="eyebrow-line" /> CENTRAL DE MENSAGENS</span><h1>Estúdio de mensagens</h1><p className="module-caption">Prepare o contexto. Confira o texto. Copie quando estiver pronto.</p><p>{messageAudience === "Prestador" ? "Escolha com quem vai falar. O texto mantém o cuidado necessário com empresas e usa uma linguagem mais próxima com prestadores de serviço." : "Monte uma abertura curta para WhatsApp ou áudio, com o produto, o ambiente, o objetivo e a próxima pergunta já organizados."}</p></div><div className="message-count"><strong>41</strong><span>anos para transmitir confiança</span><small>85 cidades atendidas</small></div></div>
 
+            <nav className="workbench-tabs" aria-label="Etapas da mensagem">{([["compose", "01", "Contexto"], ["preview", "02", "Mensagem pronta"], ["examples", "03", "Modelos"]] as const).map(([view, number, text]) => <button key={view} type="button" className={messageView === view ? "active" : ""} aria-pressed={messageView === view} onClick={() => setMessageView(view)}><span>{number}</span><strong>{text}</strong></button>)}</nav>
+            {messageView === "compose" && <>
             <section className="message-audience-switch panel" aria-label="Escolher destinatário da mensagem"><div><span className="section-kicker">QUEM VAI RECEBER?</span><h2>Separe atendimento de prospecção</h2><p>Os dados de cliente e prestador ficam organizados em planejadores diferentes.</p></div><div className="message-audience-options"><button type="button" className={messageAudience === "Cliente" ? "active" : ""} aria-pressed={messageAudience === "Cliente"} onClick={() => setMessageAudience("Cliente")}><span>01</span><strong>Cliente</strong><small>Atendimento, produto e orçamento</small></button><button type="button" className={messageAudience === "Prestador" ? "active partner" : "partner"} aria-pressed={messageAudience === "Prestador"} onClick={() => setMessageAudience("Prestador")}><span>02</span><strong>Prestador / parceiro</strong><small>Apresentação e início de parceria</small></button></div></section>
 
             <section className={`message-trust panel ${messageAudience === "Prestador" ? "partner" : ""}`}><div><span className="message-trust-icon">✓</span><div><strong>{messageAudience === "Prestador" ? (providerProfile === "Empresa" ? "Formal sem parecer distante" : "Próximo sem perder o respeito") : "Prova institucional sem discurso pesado"}</strong><p>{messageAudience === "Prestador" ? (providerProfile === "Empresa" ? "Diga quem você é, explique como pode ajudar e termine com uma pergunta fácil de responder." : "Use uma linguagem do dia a dia, seja educado e deixe claro que o contato pode ajudar nas próximas obras.") : "A mensagem pode ressaltar experiência, qualidade e garantia — depois volta para a necessidade real do cliente."}</p></div></div><div className="message-trust-points"><span>41 anos</span><span>85 cidades</span><span>{messageAudience === "Prestador" ? "Portfólio" : "Qualidade"}</span><span>{messageAudience === "Prestador" ? "Apoio técnico" : "Garantia da linha"}</span></div></section>
             {messageAudience === "Prestador" && <div className={`provider-contact-note ${providerProfile === "Empresa" ? "formal" : "informal"}`}><span>✦</span><p><strong>{providerProfile === "Empresa" ? "Contato com empresas:" : "Contato com prestadores de serviço:"}</strong> {providerProfile === "Empresa" ? "use o nome da empresa quando souber. Se ainda não tiver o contato de compras ou obras, peça essa orientação com educação e sem tentar apresentar tudo de uma vez." : "fale como você falaria com um profissional da região: direto, educado e sem gírias. A primeira mensagem só precisa abrir a conversa."}</p></div>}
 
-            <div className="message-layout">
-              <section className="panel message-form-panel">
+            </>}
+            <div className="message-layout message-workbench">
+              {messageView === "compose" && <section className="panel message-form-panel">
                 <div className="panel-heading"><div><span className="section-kicker">PLANEJADOR</span><h2>{messageAudience === "Prestador" ? "Monte sua apresentação" : "Preencha em menos de um minuto"}</h2></div><span className="planner-live"><span /> ao vivo</span></div>
                 {messageAudience === "Prestador" && <div className="provider-profile-switch"><span className="section-kicker">TIPO DE APRESENTAÇÃO</span><div className="provider-profile-options"><button type="button" className={providerProfile === "Empresa" ? "active formal" : "formal"} aria-pressed={providerProfile === "Empresa"} onClick={() => selectProviderProfile("Empresa")}><span>01</span><div><strong>Empresas</strong><small>Cordial, profissional e sem cara de texto pronto</small></div></button><button type="button" className={providerProfile === "Prestador de Serviço" ? "active informal" : "informal"} aria-pressed={providerProfile === "Prestador de Serviço"} onClick={() => selectProviderProfile("Prestador de Serviço")}><span>02</span><div><strong>Prestador de Serviço</strong><small>Direto, respeitoso e com linguagem do dia a dia</small></div></button></div></div>}
                 <div className="message-form-grid">
@@ -3891,19 +3446,19 @@ export default function Home() {
                   <label><span>Tom da mensagem</span><select value={messageTone} onChange={(event) => setMessageTone(event.target.value as QuickMessageTone)}><option>Consultivo</option><option>Direto</option><option>Próximo</option></select></label>
                 </div>
                 <div className="message-proof-options"><span className="section-kicker">O QUE RESSALTAR</span><label><input type="checkbox" checked={messageProof.company} onChange={(event) => setMessageProof((current) => ({ ...current, company: event.target.checked }))} /><span className="fake-checkbox">✓</span>41 anos e 85 cidades</label><label><input type="checkbox" checked={messageProof.quality} onChange={(event) => setMessageProof((current) => ({ ...current, quality: event.target.checked }))} /><span className="fake-checkbox">✓</span>{messageAudience === "Prestador" ? "Portfólio de portas e esquadrias" : "Qualidade"}</label><label><input type="checkbox" checked={messageProof.guarantee} onChange={(event) => setMessageProof((current) => ({ ...current, guarantee: event.target.checked }))} /><span className="fake-checkbox">✓</span>{messageAudience === "Prestador" ? "Apoio na especificação" : "Garantia da linha"}</label></div>
-              </section>
+              <div className="workbench-next"><button className="button primary" type="button" onClick={() => setMessageView("preview")}>Ver mensagem pronta <WorkspaceIcon name="arrow" /></button></div></section>}
 
-              <section className="panel message-preview-panel">
+              {messageView === "preview" && <section className="panel message-preview-panel">
                 <div className="message-preview-head"><div><span className="section-kicker">PRÉVIA PRONTA</span><h2>{messageAudience === "Prestador" ? (providerProfile === "Empresa" ? (messageChannel === "Áudio" ? "Apresentação formal para falar" : "Apresentação formal para enviar") : (messageChannel === "Áudio" ? "Apresentação próxima para falar" : "Apresentação próxima para enviar")) : (messageChannel === "Áudio" ? "Roteiro para falar" : "Mensagem para enviar")}</h2></div><div className="message-preview-actions"><button className="copy-button" onClick={() => speakText(quickMessage, "quick-message")}>{speakingMessageId === "quick-message" ? "Parar áudio" : "Ouvir"} <span>{speakingMessageId === "quick-message" ? "■" : "▶"}</span></button><button className="copy-button" onClick={() => copyMessage(quickMessage, messageChannel === "Áudio" ? "Roteiro de áudio" : messageAudience === "Prestador" ? "Apresentação" : "Mensagem")}>Copiar {messageChannel === "Áudio" ? "roteiro" : "mensagem"} <span>⧉</span></button></div></div>
                 <div className={`message-preview-bubble ${messageChannel === "Áudio" ? "audio" : ""} ${messageAudience === "Prestador" ? "partner" : ""} ${messageAudience === "Prestador" && providerProfile === "Empresa" ? "formal" : ""}`} aria-live="polite"><div className="preview-label"><span>{messageChannel === "Áudio" ? (messageAudience === "Prestador" ? `${providerProfile.toUpperCase()} · GUIA DE ÁUDIO` : "GUIA DE ÁUDIO") : messageAudience === "Prestador" ? `${providerProfile.toUpperCase()} · WHATSAPP` : "WHATSAPP"}</span><span>{messageTone.toUpperCase()}</span></div><p>{quickMessage}</p></div>
                 <div className="message-next"><span className="mini-label">POR QUE FUNCIONA</span><p>{messageAudience === "Prestador" ? (providerProfile === "Empresa" ? "A mensagem é profissional, mas não fria: apresenta a Mult Portas, mostra utilidade e facilita o encaminhamento para a pessoa certa." : "Parece uma conversa de verdade: é respeitosa, explica como você pode ajudar e termina com uma pergunta simples.") : "Apresenta a linha, transmite confiança e termina com uma pergunta objetiva. Assim a conversa continua humana, sem parecer uma resposta automática."}</p></div>
                 <div className="message-checklist"><span className="mini-label">ANTES DE ENVIAR</span><div>{messageAudience === "Prestador" ? (providerProfile === "Empresa" ? <><span>✓ confirme o nome da empresa</span><span>✓ identifique o segmento</span><span>✓ procure o responsável certo</span></> : <><span>✓ confirme o nome</span><span>✓ cite a região</span><span>✓ seja próximo sem usar gírias</span></>) : <><span>✓ cite o ambiente</span><span>✓ adapte o objetivo</span><span>✓ confirme medida, modelo e garantia</span></>}</div></div>
                 <div className="message-pending"><span className="mini-label">{messageAudience === "Prestador" ? "CONFIRME DEPOIS DO PRIMEIRO CONTATO" : "AINDA PENDENTE NO ATENDIMENTO"}</span><p>{messagePendingFields.map((field, index) => <span key={field}>A confirmar: {field}{index < messagePendingFields.length - 1 ? " · " : ""}</span>)}</p></div>
                 <button className="button dark full" onClick={() => copyMessage(quickMessage, messageChannel === "Áudio" ? "Roteiro de áudio" : messageAudience === "Prestador" ? "Apresentação" : "Mensagem")}>{messageChannel === "Áudio" ? "Copiar roteiro de áudio" : messageAudience === "Prestador" ? "Copiar apresentação" : "Copiar para o WhatsApp"} <span>⧉</span></button>
-              </section>
+              <button className="workbench-back" type="button" onClick={() => setMessageView("compose")}>← Editar contexto da mensagem</button></section>}
             </div>
 
-            <section className="message-examples"><div className="section-intro-mini"><span className="section-kicker">{messageAudience === "Prestador" ? `${providerProfile === "Empresa" ? "MODELOS PARA FALAR COM EMPRESAS" : "MODELOS PARA FALAR COM PRESTADORES DE SERVIÇO"}` : "ABERTURAS QUE PODEM SER ADAPTADAS"}</span><h2>{messageAudience === "Prestador" ? (providerProfile === "Empresa" ? "Mensagens profissionais que ainda parecem escritas por uma pessoa." : "Mensagens simples, respeitosas e prontas para usar.") : "Comece simples. Personalize na resposta."}</h2></div><div className="message-example-grid">{(messageAudience === "Prestador" ? providerExampleChoices : openingRecommendations.slice(0, 4)).map((item) => <article key={item.id}><span>{item.tag}</span><strong>{item.title}</strong><p>{item.message}</p><button className="copy-button" onClick={() => copyMessage(item.message, messageAudience === "Prestador" ? "Apresentação" : "Exemplo")}>{messageAudience === "Prestador" ? "Copiar apresentação" : "Copiar exemplo"} <span>⧉</span></button></article>)}</div></section>
+            {messageView === "examples" && <section className="message-examples"><div className="section-intro-mini"><span className="section-kicker">{messageAudience === "Prestador" ? `${providerProfile === "Empresa" ? "MODELOS PARA FALAR COM EMPRESAS" : "MODELOS PARA FALAR COM PRESTADORES DE SERVIÇO"}` : "ABERTURAS QUE PODEM SER ADAPTADAS"}</span><h2>{messageAudience === "Prestador" ? (providerProfile === "Empresa" ? "Mensagens profissionais que ainda parecem escritas por uma pessoa." : "Mensagens simples, respeitosas e prontas para usar.") : "Comece simples. Personalize na resposta."}</h2></div><div className="message-example-grid">{(messageAudience === "Prestador" ? providerExampleChoices : openingRecommendations.slice(0, 4)).map((item) => <article key={item.id}><span>{item.tag}</span><strong>{item.title}</strong><p>{item.message}</p><button className="copy-button" onClick={() => copyMessage(item.message, messageAudience === "Prestador" ? "Apresentação" : "Exemplo")}>{messageAudience === "Prestador" ? "Copiar apresentação" : "Copiar exemplo"} <span>⧉</span></button></article>)}</div></section>}
           </div>
         )}
 
@@ -3912,20 +3467,21 @@ export default function Home() {
             <div className="section-intro fair-intro">
               <div>
                 <span className="eyebrow"><span className="eyebrow-line" /> CONVITES DO FEIRÃO</span>
-                <h1>Convide com atenção.<br /><em>Sem parecer mensagem em massa.</em></h1>
+                <h1>Convites do Feirão</h1><p className="module-caption">Personalize a abordagem e confira os dados da campanha.</p>
                 <p>Escolha o contexto do cliente, personalize o interesse e copie uma mensagem acolhedora para WhatsApp ou um roteiro natural para áudio.</p>
               </div>
               <div className="fair-date-card"><strong>{fairDateLabel}</strong><span>{fairWeekdayLabel}</span><small>{fairEventTime.trim() || "Horário a confirmar"}</small></div>
             </div>
 
-            <section className="panel fair-promise">
+                        <nav className="workbench-tabs" aria-label="Etapas do convite">{([["compose", "01", "Contexto"], ["preview", "02", "Convite pronto"], ["examples", "03", "Modelos"]] as const).map(([view, number, text]) => <button key={view} type="button" className={fairView === view ? "active" : ""} aria-pressed={fairView === view} onClick={() => setFairView(view)}><span>{number}</span><strong>{text}</strong></button>)}</nav>
+{fairView === "compose" && <details className="module-reference fair-instructions"><summary>Como montar um convite <span>+</span></summary><section className="panel fair-promise">
               <div className="fair-promise-icon">✦</div>
               <div><span className="section-kicker">MONTAGEM RÁPIDA</span><h2>Uma abordagem certa para cada momento do cliente</h2><p>A mensagem muda o contexto sem inventar informações, pressionar ou cobrar resposta. Você só confere os dados e envia.</p></div>
               <div className="fair-promise-points"><span>7 perfis</span><span>144 variações por opção</span><span>WhatsApp</span><span>Áudio</span><span>Sem pressão</span></div>
-            </section>
+            </section></details>}
 
-            <div className="fair-layout">
-              <section className="panel fair-builder-panel">
+            <div className="fair-layout fair-workbench">
+              {fairView === "compose" && <section className="panel fair-builder-panel">
                 <div className="panel-heading"><div><span className="section-kicker">PERSONALIZAÇÃO</span><h2>Monte o convite em menos de um minuto</h2></div><span className="planner-live"><span /> ao vivo</span></div>
 
                 <div className="fair-profile-picker">
@@ -3957,22 +3513,22 @@ export default function Home() {
                 {!fairDetailsReady && <div className="message-pending" role="status"><span className="mini-label">DADOS OBRIGATÓRIOS PENDENTES</span><p>{fairIncompleteMessage}</p></div>}
 
                 <div className={`fair-emoji-control ${fairChannel === "Áudio" ? "disabled" : ""}`}><div><span className="mini-label">EMOJIS NA MENSAGEM</span><small>{fairChannel === "Áudio" ? "O roteiro de áudio fica limpo automaticamente." : fairEmojiModes.find((mode) => mode.id === fairEmojiMode)?.description}</small></div><div className="fair-emoji-options" role="group" aria-label="Quantidade de emojis">{fairEmojiModes.map((mode) => <button key={mode.id} type="button" disabled={fairChannel === "Áudio"} className={fairEmojiMode === mode.id ? "active" : ""} aria-pressed={fairEmojiMode === mode.id} onClick={() => setFairEmojiMode(mode.id as FairEmojiMode)}>{mode.label}</button>)}</div></div>
-              </section>
+              <div className="workbench-next"><button className="button primary" type="button" onClick={() => setFairView("preview")}>Ver convite pronto <WorkspaceIcon name="arrow" /></button></div></section>}
 
-              <section className="panel fair-preview-panel">
+              {fairView === "preview" && <section className="panel fair-preview-panel">
                 <div className="message-preview-head"><div><span className="section-kicker">{fairDetailsReady ? "CONVITE PRONTO" : "DADOS PENDENTES"}</span><h2>{fairDetailsReady ? (fairChannel === "Áudio" ? "Roteiro natural para falar" : "Mensagem pronta para enviar") : "Complete os dados do Feirão"}</h2></div><div className="message-preview-actions"><button className="copy-button" type="button" disabled={!fairDetailsReady} onClick={() => speakText(fairMessage, "fair-message")}>{speakingMessageId === "fair-message" ? "Parar áudio" : "Ouvir"} <span>{speakingMessageId === "fair-message" ? "■" : "▶"}</span></button><button className="copy-button" type="button" disabled={!fairDetailsReady} onClick={() => copyMessage(fairMessage, "Convite do Feirão")}>Copiar <span>⧉</span></button></div></div>
                 <div key={fairVariation} className={`fair-preview-bubble ${fairChannel === "Áudio" ? "audio" : ""}`} aria-live="polite"><div className="preview-label"><span>{fairChannel.toUpperCase()} · {fairClientProfiles.find((profile) => profile.id === fairProfileId)?.shortLabel.toUpperCase()}</span><span>{fairToneOptions.find((tone) => tone.id === fairTone)?.label.toUpperCase()}</span></div><p>{fairMessage}</p></div>
                 <div className="fair-randomizer"><div><span className="mini-label">VARIAÇÃO INSTANTÂNEA</span><p>Troque a redação sem alterar cliente, produto ou dados do Feirão.</p></div><button className="fair-randomize-button" type="button" disabled={!fairDetailsReady} onClick={randomizeFairMessage} aria-label="Gerar outra versão do convite"><span aria-hidden="true">↻</span><span><strong>Gerar outra versão</strong><small>Versão {fairVariation + 1} de {FAIR_VARIATION_COUNT}</small></span></button></div>
                 <div className="message-next"><span className="mini-label">POR QUE FUNCIONA</span><p>{fairClientProfiles.find((profile) => profile.id === fairProfileId)?.description} O convite apresenta a condição com clareza e termina com uma pergunta fácil de responder.</p></div>
                 <div className="fair-checklist"><span className="mini-label">ANTES DE ENVIAR</span><div><span>✓ confirme nome e interesse</span><span>✓ confira data e horário</span><span>✓ mantenha “até” no desconto</span><span>✓ envie sem cobrar resposta</span></div></div>
                 <button className="button dark full" type="button" disabled={!fairDetailsReady} onClick={() => copyMessage(fairMessage, fairChannel === "Áudio" ? "Roteiro do Feirão" : "Convite do Feirão")}>{fairChannel === "Áudio" ? "Copiar roteiro de áudio" : "Copiar para o WhatsApp"} <span>⧉</span></button>
-              </section>
+              <button className="workbench-back" type="button" onClick={() => setFairView("compose")}>← Editar cliente e campanha</button></section>}
             </div>
 
-            <section className="fair-library">
+            {fairView === "examples" && <section className="fair-library">
               <div className="section-intro-mini"><span className="section-kicker">MODELOS POR TIPO DE CLIENTE</span><h2>{fairDetailsReady ? "Sete convites prontos, já com os dados preenchidos." : "Complete os dados para liberar os sete convites."}</h2><p>Os modelos abaixo acompanham o nome, o interesse, o canal, o tom e as informações do Feirão escolhidas acima.</p></div>
-              <div className="fair-template-grid">{fairProfileMessages.map((item) => <article key={item.id} className={fairProfileId === item.id ? "active" : ""}><div className="fair-template-head"><span>{item.shortLabel}</span><button type="button" onClick={() => setFairProfileId(item.id as FairProfileId)}>Usar modelo <span>→</span></button></div><strong>{item.label}</strong><p>{item.message}</p><button className="copy-button" type="button" disabled={!fairDetailsReady} onClick={() => copyMessage(item.message, `Convite ${item.shortLabel}`)}>Copiar convite <span>⧉</span></button></article>)}</div>
-            </section>
+              <div className="fair-template-grid">{fairProfileMessages.map((item) => <article key={item.id} className={fairProfileId === item.id ? "active" : ""}><div className="fair-template-head"><span>{item.shortLabel}</span><button type="button" onClick={() => { setFairProfileId(item.id as FairProfileId); setFairView("preview"); }}>Usar modelo <span>→</span></button></div><strong>{item.label}</strong><p>{item.message}</p><button className="copy-button" type="button" disabled={!fairDetailsReady} onClick={() => copyMessage(item.message, `Convite ${item.shortLabel}`)}>Copiar convite <span>⧉</span></button></article>)}</div>
+            </section>}
           </div>
         )}
 
@@ -3981,18 +3537,13 @@ export default function Home() {
             <div className="section-intro factory-intro">
               <div>
                 <span className="eyebrow"><span className="eyebrow-line" /> REQUISIÇÃO TÉCNICA · USO INTERNO</span>
-                <h1>Monte o Kit Porta.<br /><em>Envie sem ruído.</em></h1>
+                <h1>Requisição de fábrica</h1><p className="module-caption">Monte os kits, revise as características e prepare o Excel.</p>
                 <p>Uma linha por Kit Porta Dalcomad. Preencha somente as características aplicáveis, mantenha o que ainda falta como “A confirmar” e exporte o arquivo quando estiver pronto.</p>
               </div>
               <div className="factory-count"><strong>{filledFactoryItems.length}</strong><span>{filledFactoryItems.length === 1 ? "item enviado" : "itens enviados"}</span><small>Uma linha por orçamento encaminhado</small></div>
             </div>
 
-            <section className="factory-rules" aria-label="Regras da requisição">
-              <div><span>01</span><strong>Uma linha por kit</strong><p>Separe cada Kit Porta Dalcomad.</p></div>
-              <div><span>02</span><strong>Consulta técnica</strong><p>Esta área não substitui o orçamento comercial.</p></div>
-              <div><span>03</span><strong>Sem lacunas inventadas</strong><p>Use “A confirmar” ou deixe em branco.</p></div>
-              <div><span>04</span><strong>Excel em um clique</strong><p>O arquivo leva as linhas preenchidas e as listas.</p></div>
-            </section>
+
 
             <section className="panel factory-workspace">
               <div className="factory-toolbar">
@@ -4022,10 +3573,10 @@ export default function Home() {
                   <div className="factory-step-counter"><strong>{String(factoryWizardStep + 1).padStart(2, "0")}</strong><span>/ {String(factoryWizardSteps.length).padStart(2, "0")}</span></div>
                 </div>
                 <div className="factory-progress" aria-hidden="true"><span style={{ width: `${factoryWizardProgress}%` }} /></div>
-                <div className="factory-step-tabs" aria-label="Etapas para montar o kit">
+                <div className="factory-build-grid"><div className="factory-step-tabs" aria-label="Etapas para montar o kit">
                   {factoryWizardSteps.map((step, index) => <button key={step.key} type="button" aria-current={factoryWizardStep === index ? "step" : undefined} className={factoryWizardStep === index ? "active" : factoryWizardDraft[step.key].trim() ? "done" : ""} onClick={() => setFactoryWizardStep(index)}><b>{String(index + 1).padStart(2, "0")}</b><span>{step.label}</span></button>)}
                 </div>
-                <div className="factory-locator-body">
+                <div className="factory-build-main"><div className="factory-locator-body">
                   <div className="factory-locator-copy"><span className="section-kicker">ETAPA {String(factoryWizardStep + 1).padStart(2, "0")}</span><h4>{activeFactoryWizardStep.title}</h4><p>{activeFactoryWizardStep.hint}</p></div>
                   <div className="factory-locator-input-wrap">
                     <label className="factory-locator-field"><span>{activeFactoryWizardStep.label}{activeFactoryWizardStep.optional ? " · opcional" : ""}</span>{activeFactoryWizardUsesSelect ? <select className="factory-locator-select" value={factoryWizardDraft[activeFactoryWizardStep.key]} onChange={(event) => updateFactoryWizard(activeFactoryWizardStep.key, event.target.value)} aria-label={`Etapa ${activeFactoryWizardStep.label}`} autoFocus><option value="">Selecione {activeFactoryWizardStep.label.toLocaleLowerCase("pt-BR")}</option>{activeFactoryWizardOptions.map((option) => <option key={option} value={option}>{option}</option>)}<option value="A confirmar">A confirmar</option></select> : <input value={factoryWizardDraft[activeFactoryWizardStep.key]} onChange={(event) => updateFactoryWizard(activeFactoryWizardStep.key, event.target.value)} placeholder={activeFactoryWizardStep.placeholder} list={activeFactoryWizardStep.listId} inputMode={activeFactoryWizardStep.key === "priceWithoutLock" || activeFactoryWizardStep.key === "priceWithLock" ? "decimal" : undefined} autoComplete="off" aria-label={`Etapa ${activeFactoryWizardStep.label}`} autoFocus />}</label>
@@ -4037,6 +3588,7 @@ export default function Home() {
                 </div>
                 <div className="factory-locator-summary" aria-live="polite"><span className="mini-label">PRÉVIA DO KIT · DALCOMAD · KIT PORTA · ABRIR</span><div>{factoryWizardSteps.map((step) => <span key={step.key} className={factoryWizardDraft[step.key].trim() ? "filled" : ""}><b>{step.label}</b>{factoryWizardDraft[step.key].trim() || (step.optional ? "Opcional" : "—")}</span>)}</div></div>
                 <div className="factory-locator-actions"><button className="text-button" type="button" onClick={resetFactoryWizard}>{editingFactoryItemId ? "Cancelar edição" : "Limpar montador"}</button><div><button className="button light" type="button" onClick={goToPreviousFactoryWizardStep} disabled={factoryWizardStep === 0}>← Voltar</button>{factoryWizardStep < factoryWizardSteps.length - 1 ? <button className="button dark" type="button" onClick={goToNextFactoryWizardStep}>Próxima etapa <span>→</span></button> : <button className="button primary" type="button" onClick={addFactoryWizardItem}>{editingFactoryItemId ? "Salvar alterações" : "Enviar kit para a requisição"} <span>↗</span></button>}</div></div>
+                </div></div>
               </section>
 
               <div className="factory-submission-note" role="status" aria-live="polite">
@@ -4073,47 +3625,45 @@ export default function Home() {
             <datalist id="factory-lines">{factoryListOptions.lines.map((item) => <option key={item} value={item} />)}</datalist>
             <datalist id="factory-finishes">{factoryListOptions.finishes.map((item) => <option key={item} value={item} />)}</datalist>
             <datalist id="factory-fillings">{factoryListOptions.fillings.map((item) => <option key={item} value={item} />)}</datalist>
+            <details className="module-reference"><summary>Regras da requisição técnica <span>+</span></summary><section className="factory-rules" aria-label="Regras da requisição">
+              <div><span>01</span><strong>Uma linha por kit</strong><p>Separe cada Kit Porta Dalcomad.</p></div>
+              <div><span>02</span><strong>Consulta técnica</strong><p>Esta área não substitui o orçamento comercial.</p></div>
+              <div><span>03</span><strong>Sem lacunas inventadas</strong><p>Use “A confirmar” ou deixe em branco.</p></div>
+              <div><span>04</span><strong>Excel em um clique</strong><p>O arquivo leva as linhas preenchidas e as listas.</p></div>
+            </section></details>
           </div>
         )}
 
         {section === "catalog" && (
-          <div className="page-content">
-            <div className="section-intro catalog-intro"><div><span className="eyebrow"><span className="eyebrow-line" /> GUIA DE PRODUTOS</span><h1>Aprenda o produto.<br /><em>Depois indique com confiança.</em></h1><p>Comece por uma marca, entenda materiais e medidas na aula e só depois compare as fichas. Cada conta guarda sua etapa de estudo.</p></div><div className="catalog-count"><strong>{catalogItems.length}</strong><span>fichas comerciais</span><small>{studiedCatalogCount} catálogos · {studiedBrandCount} marcas</small></div></div>
-            <nav className="catalog-start-cards" aria-label="Como estudar o catálogo">
-              <a href="#catalog-brands"><span>01</span><strong>Escolha uma marca</strong><small>Veja qual linha você quer aprender.</small></a>
-              <a href="#catalog-learning-title"><span>02</span><strong>Faça a aula</strong><small>Conheça material, medidas e qualidade.</small></a>
-              <a href="#catalog-results"><span>03</span><strong>Abra uma ficha</strong><small>Confirme o modelo antes de orçar.</small></a>
-            </nav>
-            <div className="brand-tabs" id="catalog-brands">{(Object.keys(brandData) as BrandId[]).map((id) => <button type="button" key={id} className={brand === id ? "active" : ""} aria-pressed={brand === id} onClick={() => selectBrand(id)}><span className="brand-tab-mark" style={{ background: brandData[id].accent }} /> <strong>{brandData[id].short}</strong><small>{brandData[id].descriptor}</small></button>)}</div>
-            <div className="brand-profile panel"><div className="brand-profile-main"><div className="profile-orb" style={{ background: currentBrand.accent }}><span>{currentBrand.short.slice(0, 2).toUpperCase()}</span></div><div><span className="section-kicker">{currentBrand.catalog}</span><h2>{currentBrand.name}</h2><p>{currentBrand.summary}</p><a className="official-link" href={currentBrand.official} target="_blank" rel="noreferrer">Abrir canal oficial <span>↗</span></a></div></div><div className="profile-columns"><div><span className="mini-label">INDICAR QUANDO</span>{currentBrand.when.map((item) => <span className="profile-tag" key={item}>+ {item}</span>)}</div><div><span className="mini-label">NÃO ESQUECER</span>{currentBrand.guardrails.map((item) => <p className="guardrail" key={item}>✓ {item}</p>)}</div></div></div>
-            <CatalogLearning key={`${authUser.id}-${brand}`} brand={brand} brandName={currentBrand.short} userId={authUser.id} />
-            {currentBrand.documents?.length ? <section className="catalog-documents panel" aria-label={`Catálogos em PDF de ${currentBrand.short}`}><div className="catalog-documents-heading"><div><span className="section-kicker">ARQUIVOS PARA CONSULTA</span><h2>Catálogos completos em PDF</h2></div><span>{currentBrand.documents.length} arquivos</span></div><div className="catalog-document-grid">{currentBrand.documents.map((document, index) => <a className="catalog-document-card" href={publicAssetHref(document.href)} target="_blank" rel="noreferrer" key={document.href}><div><span>{String(index + 1).padStart(2, "0")}</span><strong>{document.title}</strong></div><p>{document.description}</p><small>{document.pages} páginas <b>Abrir PDF ↗</b></small></a>)}</div></section> : null}
-            <div className="catalog-tools" id="catalog-results"><div className="search-box"><span>⌕</span><input value={catalogSearch} onChange={(event) => setCatalogSearch(event.target.value)} placeholder={`Pesquisar em ${currentBrand.short}...`} aria-label="Pesquisar no catálogo" /></div><select value={catalogFamily} onChange={(event) => setCatalogFamily(event.target.value)} aria-label="Filtrar família">{families.map((family) => <option key={family}>{family}</option>)}</select><span className="result-count">{filteredCatalog.length} resultados</span></div>
-            {filteredCatalog.length > 0 ? <div className="catalog-grid">{filteredCatalog.map((item) => <article className="catalog-card" key={item.id}><div className="card-meta"><span className="family-badge">{item.family}</span><span className="source-dot" title={item.source}>●</span></div><h3>{item.title}</h3>{item.code && <div className="catalog-code">{item.code}</div>}<p>{item.spec}</p><div className="card-bottom"><span>Indicar para <strong>{item.bestFor.split(",")[0]}</strong></span><button type="button" aria-label={`Abrir ficha de ${item.title}`} onClick={(event) => { catalogTriggerRef.current = event.currentTarget; setSelectedCatalog(item); }}>Ver ficha <span>→</span></button></div></article>)}</div> : <div className="empty-state catalog-empty"><strong>Nenhuma ficha encontrada.</strong><span>Revise o termo ou limpe os filtros para ver todas as opções desta marca.</span><button className="button light" type="button" onClick={() => { setCatalogSearch(""); setCatalogFamily("Todas"); }}>Limpar filtros</button></div>}
-            <div className="catalog-note"><span>i</span><p>Os catálogos enviados são referências comerciais. Código, cor, medida final, ferragem, disponibilidade, prazo e composição devem ser confirmados antes do fechamento.</p></div>
+          <div className="catalog-module">
+            <CatalogWorkspace key={`${authUser.id}-${brand}`} brand={brand} userId={authUser.id} currentBrand={currentBrand} brands={brandData} items={filteredCatalog} totalItemCount={catalogItems.length} studiedCatalogCount={studiedCatalogCount} catalogSearch={catalogSearch} catalogFamily={catalogFamily} families={families} assetHref={publicAssetHref} onSelectBrand={selectBrand} onSearchChange={setCatalogSearch} onFamilyChange={setCatalogFamily} onOpenItem={(item, trigger) => { catalogTriggerRef.current = trigger; setSelectedCatalog(item); }} />
             {selectedCatalog && <div className="drawer-backdrop" onClick={() => setSelectedCatalog(null)}><aside className="catalog-drawer" ref={catalogDialogRef} role="dialog" aria-modal="true" aria-label={`Ficha de ${selectedCatalog.title}`} onClick={(event) => event.stopPropagation()}><button className="drawer-close" aria-label="Fechar ficha" onClick={() => setSelectedCatalog(null)}>×</button><span className="family-badge">{selectedCatalog.family}</span><h2>{selectedCatalog.title}</h2><p className="drawer-spec">{selectedCatalog.spec}</p><div className="drawer-section"><span className="mini-label">QUANDO INDICAR</span><p>{selectedCatalog.bestFor}</p></div><div className="drawer-section pitch"><span className="mini-label">ARGUMENTO DE VENDA</span><p>“{selectedCatalog.pitch}”</p><div className="drawer-actions"><button className="copy-button" onClick={() => copyMessage(selectedCatalog.pitch)}>Copiar argumento <span>⧉</span></button><button className="copy-button" onClick={() => { setMessageLine(selectedCatalog.title); setSelectedCatalog(null); navigate("messages"); }}>Planejar mensagem <span>→</span></button></div></div><div className="drawer-section"><span className="mini-label">CONFIRMAR ANTES DE FECHAR</span>{selectedCatalog.checks.map((check) => <label className="drawer-check" key={check}><input type="checkbox" checked={drawerChecks[selectedCatalog.id]?.includes(check) ?? false} onChange={() => toggleCatalogCheck(selectedCatalog.id, check)} /><span className="fake-checkbox">✓</span>{check}</label>)}</div>{selectedCatalog.documentHref && <a className="catalog-pdf-link" href={publicAssetHref(selectedCatalog.documentHref)} target="_blank" rel="noreferrer">Abrir catálogo completo em PDF <span>↗</span></a>}<div className="drawer-source"><span>Fonte</span><strong>{selectedCatalog.source}</strong><small>{brandData[selectedCatalog.brand].catalog}</small></div></aside></div>}
           </div>
         )}
 
         {section === "control" && (
           <div className="page-content">
-            <div className="section-intro control-intro"><div><span className="eyebrow"><span className="eyebrow-line" /> CONTROLE COMERCIAL</span><h1>Nada fica solto.<br /><em>Tudo tem próximo passo.</em></h1><p>Use este quadro para organizar os atendimentos da sua conta. A planilha oficial continua sendo atualizada somente quando você pedir.</p></div><div className="control-total"><strong>{portfolioCount}</strong><span>orçamentos informados</span><small>{officialQuoteCount} oficiais · {incompleteQuoteCount} incompletos</small></div></div>
-            <section className="control-rules"><div><span className="rule-number">01</span><strong>Número imutável</strong><p>O oficial não muda.</p></div><div><span className="rule-number">02</span><strong>Um status principal</strong><p>Sem duplicidade de cobrança.</p></div><div><span className="rule-number">03</span><strong>Histórico separado</strong><p>Encerrado não volta sozinho.</p></div><div><span className="rule-number">04</span><strong>Valor exato</strong><p>Centavos preservados.</p></div></section>
-            <section className="panel add-followup"><div><span className="section-kicker">NOVA PENDÊNCIA LOCAL</span><h2>Registrar sem perder tempo</h2></div><form onSubmit={addFollowUp}><input value={newClient} onChange={(event) => setNewClient(event.target.value)} placeholder="Cliente / orçamento" aria-label="Cliente ou orçamento" /><input value={newNext} onChange={(event) => setNewNext(event.target.value)} placeholder="Próxima ação" aria-label="Próxima ação" /><select value={newStatus} onChange={(event) => setNewStatus(event.target.value)} aria-label="Status">{statusOptions.map((status) => <option key={status}>{status}</option>)}</select><select value={newPriority} onChange={(event) => setNewPriority(event.target.value as Priority)} aria-label="Prioridade"><option>Alta</option><option>Média</option><option>Baixa</option></select><button className="button dark" type="submit">Adicionar <span>+</span></button></form></section>
-            <section className="board-heading"><div><span className="section-kicker">QUADRO DE AÇÃO</span><h2>O que merece atenção</h2></div><select value={filterStatus} onChange={(event) => setFilterStatus(event.target.value)} aria-label="Filtrar status"><option>Todos</option>{statusOptions.map((status) => <option key={status}>{status}</option>)}</select></section>
+            <div className="section-intro control-intro"><div><span className="eyebrow"><span className="eyebrow-line" /> CONTROLE COMERCIAL</span><h1>Meus atendimentos</h1><p className="module-caption">Uma visão do que falta, do que foi combinado e de quem precisa de retorno.</p><p>Use este quadro para organizar os atendimentos da sua conta. A planilha oficial continua sendo atualizada somente quando você pedir.</p></div><div className="control-total"><strong>{portfolioCount}</strong><span>orçamentos informados</span><small>{officialQuoteCount} oficiais · {incompleteQuoteCount} incompletos</small></div></div>
+
+
+            <div className="control-workspace"><section className="control-board"><section className="board-heading"><div><span className="section-kicker">QUADRO DE AÇÃO</span><h2>O que merece atenção</h2></div><select value={filterStatus} onChange={(event) => setFilterStatus(event.target.value)} aria-label="Filtrar status"><option>Todos</option>{statusOptions.map((status) => <option key={status}>{status}</option>)}</select></section>
             <section className="followup-list">{filteredFollowUps.map((item) => <article className={`followup-row ${item.done ? "completed" : ""}`} key={item.id}><button type="button" className={`row-check ${item.done ? "checked" : ""}`} aria-label={item.done ? `Reabrir pendência de ${item.client}` : `Concluir pendência de ${item.client}`} onClick={() => setFollowUps((current) => current.map((follow) => follow.id === item.id ? { ...follow, done: !follow.done } : follow))}>{item.done ? "✓" : ""}</button><div className="follow-main"><strong>{item.client}</strong><span>{item.status}</span></div><div className="follow-next"><small>Próxima ação</small><p>{item.next}</p></div><span className={`priority-badge ${priorityClass(item.priority)}`}>{item.priority}</span>{item.id.startsWith("local-") && <button type="button" className="delete-row" aria-label={`Excluir pendência de ${item.client}`} onClick={() => setFollowUps((current) => current.filter((follow) => follow.id !== item.id))}>×</button>}</article>)}{filteredFollowUps.length === 0 && <div className="empty-state">Nenhuma pendência com este filtro.</div>}</section>
+            </section><aside className="control-entry"><section className="panel add-followup"><div><span className="section-kicker">NOVA PENDÊNCIA LOCAL</span><h2>Registrar sem perder tempo</h2></div><form onSubmit={addFollowUp}><input value={newClient} onChange={(event) => setNewClient(event.target.value)} placeholder="Cliente / orçamento" aria-label="Cliente ou orçamento" /><input value={newNext} onChange={(event) => setNewNext(event.target.value)} placeholder="Próxima ação" aria-label="Próxima ação" /><select value={newStatus} onChange={(event) => setNewStatus(event.target.value)} aria-label="Status">{statusOptions.map((status) => <option key={status}>{status}</option>)}</select><select value={newPriority} onChange={(event) => setNewPriority(event.target.value as Priority)} aria-label="Prioridade"><option>Alta</option><option>Média</option><option>Baixa</option></select><button className="button dark" type="submit">Adicionar <span>+</span></button></form></section></aside></div>
             <div className="control-footnote"><span>!</span><p>Campos que não estiverem confirmados devem ficar como <strong>“A confirmar”</strong> ou em branco. Não transforme alternativa em venda e não some opções de cor como se fossem um único negócio.</p></div>
+            <details className="module-reference"><summary>Como manter os registros confiáveis <span>+</span></summary><section className="control-rules"><div><span className="rule-number">01</span><strong>Número imutável</strong><p>O oficial não muda.</p></div><div><span className="rule-number">02</span><strong>Um status principal</strong><p>Sem duplicidade de cobrança.</p></div><div><span className="rule-number">03</span><strong>Histórico separado</strong><p>Encerrado não volta sozinho.</p></div><div><span className="rule-number">04</span><strong>Valor exato</strong><p>Centavos preservados.</p></div></section></details>
           </div>
         )}
 
         {section === "management" && (
           <div className="page-content">
-            <div className="section-intro management-intro"><div><span className="eyebrow"><span className="eyebrow-line" /> GESTÃO SEM EXCESSO</span><h1>Melhore o processo,<br /><em>não só o resultado.</em></h1><p>Gestão é saber onde a venda travou, quem precisa de ação e qual comportamento repetir amanhã.</p></div><div className="management-level"><span>MODELO</span><strong>4 níveis</strong><small>rotina · dados · decisão · melhoria</small></div></div>
-            <section className="level-cards"><article><span>01 · BASE</span><h3>Organizar</h3><p>Cliente, número, valor, status, responsável e próxima ação.</p></article><article><span>02 · RITMO</span><h3>Acompanhar</h3><p>Retornos em timing e pendências que não ficam invisíveis.</p></article><article><span>03 · DECISÃO</span><h3>Priorizar</h3><p>Tempo no que tem medida, necessidade e decisão possível.</p></article><article><span>04 · MELHORAR</span><h3>Aprender</h3><p>Registrar objeções e repetir os argumentos que funcionam.</p></article></section>
+            <div className="section-intro management-intro"><div><span className="eyebrow"><span className="eyebrow-line" /> GESTÃO SEM EXCESSO</span><h1>Minha rotina e resultados</h1><p className="module-caption">Acompanhe os números e feche o ciclo do atendimento.</p><p>Gestão é saber onde a venda travou, quem precisa de ação e qual comportamento repetir amanhã.</p></div><div className="management-level"><span>MODELO</span><strong>4 níveis</strong><small>rotina · dados · decisão · melhoria</small></div></div>
+
             <section className="management-grid"><article className="panel metrics-panel"><div className="panel-heading"><div><span className="section-kicker">PAINEL DE INDICADORES</span><h2>Coloque os números do dia</h2></div><span className="metric-calendar">⌗</span></div><div className="metric-inputs"><label><span>Novos contatos</span><input type="number" min="0" step="1" value={metrics.leads} onChange={(event) => updateMetric("leads", event.target.value)} /></label><label><span>Orçamentos</span><input type="number" min="0" step="1" value={metrics.quotes} onChange={(event) => updateMetric("quotes", event.target.value)} /></label><label><span>Com número oficial</span><input type="number" min="0" step="1" value={metrics.officialQuotes} onChange={(event) => updateMetric("officialQuotes", event.target.value)} /></label><label><span>Incompletos / sem número</span><input type="number" min="0" step="1" value={metrics.incompleteQuotes} onChange={(event) => updateMetric("incompleteQuotes", event.target.value)} /></label><label><span>Retornos feitos</span><input type="number" min="0" step="1" value={metrics.followups} onChange={(event) => updateMetric("followups", event.target.value)} /></label><label><span>Vendas fechadas</span><input type="number" min="0" step="1" value={metrics.closed} onChange={(event) => updateMetric("closed", event.target.value)} /></label></div><div className="metric-results"><div><strong>{formatPercent(metricsConversion)}</strong><span>conversão de orçamento</span></div><div><strong>{formatPercent(metricsReturn)}</strong><span>taxa de retorno</span></div><div><strong>{metrics.ticket ? `R$ ${metrics.ticket.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—"}</strong><span>ticket médio informado</span></div></div><label className="ticket-input"><span>Ticket médio (opcional)</span><input type="number" min="0" step="0.01" value={metrics.ticket || ""} onChange={(event) => updateMetric("ticket", event.target.value)} placeholder="R$" /></label></article><article className="panel daily-panel"><div className="panel-heading"><div><span className="section-kicker">ROTINA DIÁRIA</span><h2>Feche o ciclo</h2></div><span className="daily-progress">{dailyDone.length}/4</span></div><div className="daily-list">{dailyChecks.map((check) => <label className={`daily-row ${dailyDone.includes(check.id) ? "done" : ""}`} key={check.id}><input type="checkbox" checked={dailyDone.includes(check.id)} onChange={() => toggleDaily(check.id)} /><span className="fake-checkbox">✓</span><span><strong>{check.title}</strong><small>{check.description}</small></span></label>)}</div><div className="daily-footer"><span>Consistência &gt; memória</span><div className="mini-progress"><span style={{ width: `${(dailyDone.length / dailyChecks.length) * 100}%` }} /></div></div></article></section>
             <section className="management-callout"><span className="callout-icon">↗</span><div><span className="section-kicker">VISÃO DE GESTOR</span><h2>O melhor atendimento é aquele que deixa o próximo atendimento mais fácil.</h2><p>Use as objeções, dúvidas e medidas que aparecem todos os dias para enriquecer o roteiro e o catálogo. Se uma informação não estiver confirmada, preserve a dúvida até a fonte correta.</p></div><button className="button ghost" onClick={() => navigate("catalog")}>Voltar ao catálogo <span>→</span></button></section>
+            <details className="module-reference"><summary>Modelo de gestão em quatro níveis <span>+</span></summary><section className="level-cards"><article><span>01 · BASE</span><h3>Organizar</h3><p>Cliente, número, valor, status, responsável e próxima ação.</p></article><article><span>02 · RITMO</span><h3>Acompanhar</h3><p>Retornos em timing e pendências que não ficam invisíveis.</p></article><article><span>03 · DECISÃO</span><h3>Priorizar</h3><p>Tempo no que tem medida, necessidade e decisão possível.</p></article><article><span>04 · MELHORAR</span><h3>Aprender</h3><p>Registrar objeções e repetir os argumentos que funcionam.</p></article></section></details>
           </div>
         )}
+        <footer className="workspace-footer"><span>MULT PORTAS · GUIA INTERNO</span><span>{IS_GITHUB_PAGES ? "Dados desta conta neste aparelho" : "Dados separados por funcionário"}</span><span>{studiedCatalogCount} catálogos · {studiedBrandCount} marcas</span></footer>
       </section>
       {toast && <div className={`toast ${toast.kind}`} role={toast.kind === "error" ? "alert" : "status"} aria-live={toast.kind === "error" ? "assertive" : "polite"}>{toast.kind === "success" ? "✓" : toast.kind === "error" ? "!" : "i"} {toast.message}</div>}
     </main>

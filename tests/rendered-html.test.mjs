@@ -63,7 +63,7 @@ test("GitHub Pages builds the complete guide with local accounts and lessons at 
   assert.match(html, new RegExp(`src="/guia-comercial-mult-portas/assets/${scriptName}"`));
   assert.match(html, new RegExp(`href="/guia-comercial-mult-portas/assets/${styleName}"`));
   assert.doesNotMatch(html + app, /http-equiv=["']refresh|window\.location\.(?:replace|assign)|chatgpt\.site/i);
-  for (const required of ["Crie seu acesso", "Configure a gestão", "Perfis sob controle", "GUIA PARA QUEM ESTÁ COMEÇANDO", "Dados desta conta neste aparelho", "mult-portas-pages-accounts-v1", "Tentar salvar"]) {
+  for (const required of ["Crie seu acesso", "Configure a gestão", "Equipe em um só lugar.", "Seu próximo passo", "BIBLIOTECA COMERCIAL", "Dados desta conta neste aparelho", "mult-portas-pages-accounts-v1", "Tentar salvar"]) {
     assert.ok(app.includes(required), `Versão Pages sem ${required}`);
   }
 

@@ -8,7 +8,7 @@ Guia comercial para a equipe, com roteiro de atendimento, ferramentas de trabalh
 
 | Seção | Conteúdo |
 | --- | --- |
-| Visão geral | Comando do dia e acesso às tarefas principais. |
+| Visão geral | Atividades, estudo da marca, atendimentos e indicadores da conta. |
 | Roteiro de venda | Etapas da conversa comercial, do diagnóstico ao próximo passo. |
 | Ser um bom vendedor | Postura, perguntas e prática de atendimento. |
 | Treino prático | Simulações de conversas e avaliação guiada. |
@@ -16,9 +16,11 @@ Guia comercial para a equipe, com roteiro de atendimento, ferramentas de trabalh
 | Mensagem rápida | Planejamento e cópia de mensagens comerciais. |
 | Convite Feirão | Personalização de convites por perfil de cliente. |
 | Requisição fábrica | Preenchimento e exportação de requisições. |
-| Catálogo rápido | Busca de fichas por marca e família, conferências antes da cotação e aulas integradas. |
+| Catálogos | Biblioteca de marcas com abas Aprender, Fichas e PDFs. |
 | Controle | Pendências e carteira de clientes. |
 | Gestão | Indicadores e rotina comercial pessoal. |
+
+A navegação no topo reúne os módulos em Início, Aprender, Atender, Operação e Indicadores. Mensagens e Feirão usam etapas de contexto, prévia e modelos. O administrador reúne a lista de funcionários e os detalhes em duas colunas. Os módulos existentes e os dados de cada conta foram preservados.
 
 O catálogo inclui trilhas para nove marcas, com noções de materiais, tipos de medida, pontos de qualidade, exemplos e perguntas com explicação. Há cinco catálogos Brimak em PDF, cada um com roteiro de estudo e exercício. O glossário ajuda a distinguir folha, conjunto e vão acabado.
 
@@ -28,7 +30,7 @@ As aulas são material de estudo. Confirme especificações, composição, medid
 
 É possível criar um login para cada funcionário. Os registros, pendências, respostas das aulas e a última seção ou etapa aberta são salvos **separadamente por conta neste navegador e aparelho**. Ao sair e entrar novamente na mesma conta, o guia retoma esse progresso. Entrar em outra conta carrega os dados dessa outra pessoa.
 
-No primeiro uso, a opção **Configurar admin** permite criar uma senha de administrador local. Depois, entre com o usuário `admin` e essa senha para listar, criar, editar e apagar apenas as contas existentes no mesmo navegador. A senha é guardada como hash com salt. O antigo administrador do servidor não é migrado automaticamente para o GitHub Pages.
+No primeiro uso, a opção **Configurar administrador local** permite criar uma senha de administrador local. Depois, entre com o usuário `admin` e essa senha para listar, criar, editar e apagar apenas as contas existentes no mesmo navegador. A senha é guardada como hash com salt. O antigo administrador do servidor não é migrado automaticamente para o GitHub Pages.
 
 O GitHub Pages publica arquivos estáticos e não executa o servidor de autenticação nem um banco compartilhado. Por isso, as contas locais **não sincronizam entre aparelhos ou navegadores**, e apagar os dados do navegador pode apagar cadastros e progresso. A tela de login e o admin locais organizam a experiência, mas **não protegem informações sensíveis** contra quem tem acesso ao aparelho ou ao armazenamento do site. Evite registrar dados sensíveis de clientes nessa versão. A gestão central de contas da equipe exige um servidor. No Pages, o treinador usa respostas guiadas, sem a API de IA.
 

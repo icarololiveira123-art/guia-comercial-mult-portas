@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { beginnerGlossary, brimakDocumentLessons, learningByBrand, materialGuide, measurementMethod, measurementTypes, qualityMethod, readingChecklist } from "./lib/catalog-learning.mjs";
 
 type Brand = keyof typeof learningByBrand;
@@ -132,7 +132,13 @@ function KnowledgeCheck({ question, savedChoice, onCheck }: { question: Question
   );
 }
 
-export function CatalogLearning({ brand, brandName, userId }: { brand: Brand; brandName: string; userId: number }) {
+function FichesLink({ children, onOpenFiches }: { children: ReactNode; onOpenFiches?: () => void }) {
+  return onOpenFiches
+    ? <button type="button" className="learning-inline-link" onClick={onOpenFiches}>{children}</button>
+    : <a href="#catalog-results">{children}</a>;
+}
+
+export function CatalogLearning({ brand, brandName, userId, onOpenFiches }: { brand: Brand; brandName: string; userId: number; onOpenFiches?: () => void }) {
   const storageKey = progressStorageKey(userId, brand);
   const sheetKey = sheetStorageKey(userId, brand);
   const [initialProgress] = useState(() => readProgress(storageKey, brand));
@@ -192,18 +198,19 @@ export function CatalogLearning({ brand, brandName, userId }: { brand: Brand; br
         <div><span>PARA PRATICAR</span><strong>{correctAnswers} de {questionCount}</strong><small>respostas certas nesta marca</small></div>
         <p>Abra uma ficha enquanto estuda. A ficha de estudo da última etapa guarda suas anotações neste navegador, separadas para cada login e marca.</p>
       </div>
-      <p className="learning-stage-help" id="learning-stage-help">Comece pela etapa 1 ou escolha o assunto que precisa revisar.</p>
-      <nav className="learning-stage-nav" aria-label={`Etapas de estudo de ${brandName}`} aria-describedby="learning-stage-help">
-        {stages.map((item, index) => <button type="button" key={item.id} className={stage === item.id ? "active" : ""} aria-current={stage === item.id ? "step" : undefined} aria-controls="learning-stage-panel" onClick={() => navigateStage(item.id)}><span className="learning-stage-number" aria-hidden="true">{String(index + 1).padStart(2, "0")}</span><span className="learning-stage-copy"><strong>{item.label}</strong><small>{item.summary}</small></span></button>)}
-      </nav>
-
-      <div className="learning-stage-content" id="learning-stage-panel" key={stage}>
+      <div className="catalog-lesson-layout">
+        <div className="catalog-lesson-rail"><p className="learning-stage-help" id="learning-stage-help">Comece pela etapa 1 ou escolha o assunto que precisa revisar.</p>
+          <nav className="learning-stage-nav" aria-label={`Etapas de estudo de ${brandName}`} aria-describedby="learning-stage-help">
+            {stages.map((item, index) => <button type="button" key={item.id} className={stage === item.id ? "active" : ""} aria-current={stage === item.id ? "step" : undefined} aria-controls="learning-stage-panel" onClick={() => navigateStage(item.id)}><span className="learning-stage-number" aria-hidden="true">{String(index + 1).padStart(2, "0")}</span><span className="learning-stage-copy"><strong>{item.label}</strong><small>{item.summary}</small></span></button>)}
+          </nav>
+        </div>
+        <div className="catalog-lesson-body"><div className="learning-stage-content" id="learning-stage-panel" key={stage}>
         {stage === "basics" && <>
           <h3 ref={headingRef} tabIndex={-1}>Primeiro entenda o que está comprando</h3>
           <p className="learning-lead">{guide.startingPoint}</p>
           <DoorAnatomy />
           <div className="learning-route">
-            <div className="learning-route-heading"><span className="section-kicker">LEIA UMA FICHA DE VERDADE</span><h4>Roteiro para qualquer produto</h4><p>Abra <a href="#catalog-results">uma ficha da marca</a> ou <a href={pagesAssetHref(guide.source.href)} target="_blank" rel="noreferrer">a fonte indicada</a>. Em cada passo, procure uma informação escrita. Se não estiver lá, anote “a confirmar”.</p></div>
+            <div className="learning-route-heading"><span className="section-kicker">LEIA UMA FICHA DE VERDADE</span><h4>Roteiro para qualquer produto</h4><p>Abra <FichesLink onOpenFiches={onOpenFiches}>uma ficha da marca</FichesLink> ou <a href={pagesAssetHref(guide.source.href)} target="_blank" rel="noreferrer">a fonte indicada</a>. Em cada passo, procure uma informação escrita. Se não estiver lá, anote “a confirmar”.</p></div>
             <ol>{readingChecklist.map((item) => <li key={item.name}><strong>{item.name}</strong><span>{item.prompt}</span></li>)}</ol>
           </div>
           <div className="learning-decision"><strong>Teste rápido</strong><p>Se a foto mostra uma porta de madeira, ela é maciça? Você ainda não sabe: leia núcleo e revestimento na descrição do código.</p></div>
@@ -245,13 +252,14 @@ export function CatalogLearning({ brand, brandName, userId }: { brand: Brand; br
           <section className="learning-sheet" aria-labelledby="learning-sheet-title">
             <div className="learning-sheet-heading"><span className="section-kicker">CADERNO DE ESTUDO · {brandName.toUpperCase()}</span><h4 id="learning-sheet-title">Preencha com uma peça real do catálogo</h4><p>Abra a ficha da marca, copie o que ela informa e marque as dúvidas. Seus textos são salvos automaticamente para este login e esta marca neste navegador.</p></div>
             <div className="learning-field-grid">{studyFields.map((field) => <div className="learning-field" key={field.id}><label htmlFor={`learning-sheet-${brand}-${field.id}`}>{field.label}</label><p id={`learning-help-${brand}-${field.id}`}>{field.hint}</p><textarea id={`learning-sheet-${brand}-${field.id}`} value={sheet[field.id]} onChange={(event) => updateSheet(field.id, event.target.value)} aria-describedby={`learning-help-${brand}-${field.id}`} placeholder={field.example} rows={3} maxLength={1000} /></div>)}</div>
-            <div className="learning-field-actions"><a href={pagesAssetHref(guide.source.href)} target="_blank" rel="noreferrer">Abrir a fonte desta marca ↗</a><a href="#catalog-results">Procurar uma ficha abaixo ↓</a></div>
+            <div className="learning-field-actions"><a href={pagesAssetHref(guide.source.href)} target="_blank" rel="noreferrer">Abrir a fonte desta marca ↗</a><FichesLink onOpenFiches={onOpenFiches}>Procurar uma ficha →</FichesLink></div>
           </section>
           <p className="learning-reminder">Na proposta comercial, use apenas especificações verificadas na ficha atual da peça. Se algum dado faltar, anote “a confirmar” e consulte o fabricante ou instalador.</p>
         </>}
         {stageIndex < stages.length - 1 && <button type="button" className="learning-next" onClick={() => navigateStage(stages[stageIndex + 1].id)}>Próxima etapa: {stages[stageIndex + 1].label} →</button>}
+        </div></div>
       </div>
-      <div className="learning-footer"><a href={pagesAssetHref(guide.source.href)} target="_blank" rel="noreferrer">Conferir fonte: {guide.source.label} ↗</a><a href="#catalog-results">Ver fichas desta marca ↓</a></div>
+      <div className="learning-footer"><a href={pagesAssetHref(guide.source.href)} target="_blank" rel="noreferrer">Conferir fonte: {guide.source.label} ↗</a><FichesLink onOpenFiches={onOpenFiches}>Ver fichas desta marca →</FichesLink></div>
       {brand === "brimak" && <div className="learning-documents" aria-label="Aulas de cada catálogo Brimak">
         <div className="learning-documents-heading"><span className="section-kicker">BIBLIOTECA BRIMAK</span><h3>Estude cada um dos cinco PDFs</h3><p>Escolha a linha que combina com a peça procurada. Em cada aula, leia as páginas indicadas, compare medidas e itens inclusos, depois responda a pergunta.</p></div>
         <div className="learning-documents-grid">{brimakDocumentLessons.map((lesson, index) => <details className="learning-document learning-document-card" key={lesson.href}>

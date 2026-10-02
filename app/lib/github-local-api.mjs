@@ -112,11 +112,12 @@ function removeAccountState(id) {
   const employeePrefix = `mult-portas-guia-user-${id}-`;
   const learningPrefix = `mult-portas-guia-learning-v1-user-${id}-brand-`;
   const studySheetPrefix = `mult-portas-guia-study-sheet-v1-user-${id}-brand-`;
+  const catalogViewPrefix = `mult-portas-guia-catalog-view-v1-user-${id}-brand-`;
   const keys = [];
   for (let i = 0; i < storage.length; i += 1) {
     const key = storage.key(i);
     if (key && (key === `${STATE_PREFIX}${id}` || key.startsWith(employeePrefix)
-      || key.startsWith(learningPrefix) || key.startsWith(studySheetPrefix))) keys.push(key);
+      || key.startsWith(learningPrefix) || key.startsWith(studySheetPrefix) || key.startsWith(catalogViewPrefix))) keys.push(key);
   }
   for (const key of keys) storage.removeItem(key);
 }

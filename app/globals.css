@@ -1447,6 +1447,147 @@ textarea:focus-visible, summary:focus-visible, [tabindex]:focus-visible {
   outline-offset: 3px;
 }
 
+/* Access page: preserve the login form while giving the guide a clear welcome. */
+.access-page {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(390px, 500px);
+  align-items: stretch;
+  gap: clamp(16px, 3vw, 42px);
+  min-height: 100svh;
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: clamp(16px, 2.5vw, 36px);
+}
+.access-story {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 640px;
+  overflow: hidden;
+  padding: clamp(27px, 4vw, 57px);
+  border: 1px solid #35534c;
+  border-radius: 22px;
+  color: #f5f8f5;
+  background: radial-gradient(circle at 77% 35%, #3a6256 0, transparent 38%), linear-gradient(145deg, #26433d, #1e3136 78%);
+  box-shadow: 0 16px 46px rgba(25, 44, 41, .12);
+}
+.access-story-intro { position: relative; z-index: 1; max-width: 560px; }
+.access-story-kicker {
+  color: #e9cc99;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .14em;
+}
+.access-story h2 {
+  max-width: 530px;
+  margin-top: 22px;
+  font-size: clamp(35px, 4.2vw, 58px);
+  line-height: 1.08;
+  letter-spacing: -.055em;
+}
+.access-story h2 em { color: #e8c48c; font-style: normal; }
+.access-story-intro > p { max-width: 460px; margin-top: 16px; color: #d6e4dd; font-size: 15px; line-height: 1.65; }
+.access-door {
+  position: absolute;
+  top: 135px;
+  right: -5px;
+  width: min(47%, 290px);
+  color: #dfbf89;
+  opacity: .78;
+  pointer-events: none;
+}
+.access-door svg { display: block; width: 100%; height: auto; }
+.access-door-frame { stroke: currentColor; stroke-width: 5; }
+.access-door-leaf { stroke: #bad5c6; stroke-width: 3; }
+.access-door-detail { stroke: #97b4a4; stroke-width: 1.5; }
+.access-door-handle { fill: #e8c48c; }
+.access-story-grid { position: relative; z-index: 1; display: grid; gap: 10px; max-width: 480px; margin: auto 0 0; padding: 65px 0 0; list-style: none; }
+.access-story-grid li {
+  display: grid;
+  grid-template-columns: 35px minmax(0, 1fr);
+  align-items: start;
+  gap: 14px;
+  padding: 15px 17px;
+  border: 1px solid rgba(205, 228, 213, .2);
+  border-radius: 11px;
+  background: rgba(244, 251, 244, .07);
+  backdrop-filter: blur(3px);
+}
+.access-story-grid li > span { color: #efcc95; font-size: 13px; font-weight: 800; }
+.access-story-grid strong { color: #fff; font-size: 15px; }
+.access-story-grid p { margin-top: 3px; color: #d4e0d9; font-size: 12px; line-height: 1.55; }
+.access-story-foot { position: relative; z-index: 1; margin-top: 30px; color: #b7d0bf; font-size: 10px; font-weight: 800; letter-spacing: .13em; }
+.access-panel {
+  align-self: center;
+  width: 100%;
+  min-width: 0;
+  padding: clamp(29px, 4vw, 49px);
+  border: 1px solid #dce4e1;
+  border-radius: 20px;
+  background: #fff;
+  box-shadow: 0 18px 54px rgba(31, 49, 48, .1);
+}
+.access-brand strong { color: #263a3c; font-size: 13px; }
+.access-brand span { color: #55676c; font-size: 12px; }
+.access-heading { margin-top: 35px; }
+.access-heading .section-kicker { color: #6b5637; }
+.access-heading h1 { margin-top: 11px; color: #26363b; font-size: clamp(30px, 3vw, 39px); line-height: 1.1; }
+.access-heading p { max-width: 410px; margin-top: 10px; color: #4d6168; font-size: 14px; line-height: 1.6; }
+.access-panel .auth-tabs { margin-top: 25px; }
+.access-panel .auth-tabs button { min-height: 44px; color: #42565e; font-size: 13px; }
+.access-panel .auth-tabs button.active { color: #243c3b; box-shadow: 0 2px 9px rgba(35, 58, 52, .11); }
+.access-panel .auth-form { gap: 14px; margin-top: 21px; }
+.access-panel .auth-form label > span { color: #354c52; font-size: 12px; }
+.access-panel .auth-form input, .access-panel .auth-form select { min-height: 46px; color: #2d4149; font-size: 14px; }
+.access-panel .auth-submit { min-height: 47px; }
+.access-panel .auth-error { color: #703b32; font-size: 12px; }
+.access-panel .auth-note { margin-top: 23px; }
+.access-panel .auth-note p { color: #50636a; font-size: 12px; line-height: 1.55; }
+.access-admin-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  margin-top: 9px;
+  padding: 8px 12px;
+  border: 1px solid #d4e0db;
+  border-radius: 8px;
+  color: #345d51;
+  background: #f5f9f5;
+  font-size: 12px;
+  font-weight: 800;
+  text-align: left;
+}
+.access-admin-link:hover, .access-admin-link.active { border-color: #7eaa90; background: #eaf4ed; }
+.access-admin-link:focus-visible { outline: 3px solid #93621f; outline-offset: 3px; }
+.auth-admin-username { padding: 11px 13px; border: 1px solid #d9e4de; border-radius: 8px; color: #405a52; background: #f6faf6; font-size: 13px; }
+.auth-admin-username strong { color: #24473c; }
+
+@media (max-width: 950px) {
+  .access-page { grid-template-columns: 1fr; max-width: 680px; }
+  .access-panel { order: 1; }
+  .access-story { order: 2; min-height: 0; }
+  .access-story-grid { margin-top: 35px; padding-top: 0; }
+  .access-door { top: 100px; right: 8px; width: min(34%, 185px); }
+}
+@media (max-width: 600px) {
+  .access-page { gap: 14px; padding: 14px; }
+  .access-panel { padding: 25px 20px; border-radius: 15px; }
+  .access-heading { margin-top: 27px; }
+  .access-heading h1 { font-size: 31px; }
+  .access-panel .auth-form input, .access-panel .auth-form select { font-size: 16px; }
+  .access-story { padding: 25px 21px; border-radius: 15px; }
+  .access-story h2 { font-size: 33px; }
+  .access-story-intro > p { font-size: 14px; }
+  .access-door { display: none; }
+  .access-story-grid { gap: 8px; margin-top: 25px; }
+  .access-story-grid li { padding: 13px; }
+  .access-story-foot { margin-top: 24px; }
+}
+
 /* New visual system: cobalt and cyan on an architectural navy foundation. */
 :root {
   --bg: #f1f6fb;
@@ -1877,3 +2018,36 @@ textarea:focus-visible, summary:focus-visible, [tabindex]:focus-visible,
   .auth-tabs button { font-size: 11px; }
 }
 @media (prefers-reduced-motion: reduce) { button, a, input, select, textarea { transition: none; } }
+
+/* The new access layout follows the shared blue palette and avoids legacy auth-card rules. */
+.access-story {
+  border-color: #24537d;
+  background: radial-gradient(circle at 77% 35%, #176e98 0, transparent 40%), linear-gradient(145deg, #0b3058, #102a44 78%);
+  box-shadow: 0 16px 46px rgba(20, 63, 101, .18);
+}
+.access-story-kicker, .access-story h2 em, .access-story-grid li > span { color: #8ee6f7; }
+.access-door { color: #81dcf2; }
+.access-door-leaf { stroke: #c8edfa; }
+.access-door-detail { stroke: #9ed5e8; }
+.access-door-handle { fill: #b8f0ff; }
+.access-story-grid li { border-color: rgba(184, 231, 255, .23); background: rgba(240, 250, 255, .08); }
+.access-story-foot { color: #b4def0; }
+.access-panel { border-color: #cddfee; box-shadow: 0 18px 54px rgba(22, 75, 127, .11); }
+.access-panel .access-heading .section-kicker { color: #125eaa; }
+.access-panel .access-heading h1 { color: #143b5b; }
+.access-panel .auth-tabs button.active { color: #0e5aa5; }
+.access-admin-link { border-color: #c9ddf0; color: #155a9a; background: #f3f9ff; }
+.access-admin-link:hover, .access-admin-link.active { border-color: #6eb0e8; background: #e7f4ff; }
+.access-admin-link:focus-visible { outline-color: #1269bc; }
+.auth-admin-username { border-color: #c9ddf0; color: #2e5779; background: #f3f9ff; }
+.auth-admin-username strong { color: #0f5ca5; }
+
+@media (max-width: 690px) {
+  .access-panel .access-heading {
+    margin: 27px 0 0;
+    padding: 0;
+    background: transparent;
+  }
+  .access-panel .access-heading h1 { margin-top: 11px; font-size: 31px; }
+  .access-panel .access-heading p { margin-top: 10px; font-size: 14px; }
+}

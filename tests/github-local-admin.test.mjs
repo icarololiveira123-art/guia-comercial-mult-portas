@@ -82,12 +82,14 @@ test("admin setup and CRUD preserve existing users and isolate local account dat
     local.setItem(`mult-portas-guia-user-${bobId}-resume-v1`, "progress-b");
     local.setItem(`mult-portas-guia-learning-v1-user-${bobId}-brand-brimak`, "progress-b");
     local.setItem(`mult-portas-guia-study-sheet-v1-user-${bobId}-brand-brimak`, "notes-b");
+    local.setItem(`mult-portas-guia-catalog-view-v1-user-${bobId}-brand-brimak`, "fiches");
     local.setItem(`mult-portas-guia-user-${bobId}9-resume-v1`, "other-account");
     const removed = await request(`/api/admin/users/${bobId}`, "DELETE");
     assert.equal(removed.status, 200);
     assert.equal(local.getItem(`mult-portas-guia-user-${bobId}-resume-v1`), null);
     assert.equal(local.getItem(`mult-portas-guia-learning-v1-user-${bobId}-brand-brimak`), null);
     assert.equal(local.getItem(`mult-portas-guia-study-sheet-v1-user-${bobId}-brand-brimak`), null);
+    assert.equal(local.getItem(`mult-portas-guia-catalog-view-v1-user-${bobId}-brand-brimak`), null);
     assert.equal(local.getItem(`mult-portas-guia-user-${bobId}9-resume-v1`), "other-account");
     assert.ok(local.getItem(`mult-portas-guia-user-${aliceId}-resume-v1`));
     assert.ok(local.getItem(`mult-portas-pages-state-v1-${aliceId}`));
