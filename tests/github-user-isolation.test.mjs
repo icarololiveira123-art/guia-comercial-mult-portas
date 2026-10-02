@@ -76,7 +76,7 @@ test("local accounts keep work isolated across tabs, logouts, reloads and profil
 
     globalThis.sessionStorage = aliceTab;
     let current = await request("/api/data");
-    const editedState = { ...aliceState, followups: [{ ...aliceState.followups[0], amountCents: 234567 }] };
+    const editedState = { ...aliceState, followups: [{ ...aliceState.followups[0], client: "Alice client edited", status: "Negociação ativa", next: "Confirm measures", priority: "Alta", done: true, amountCents: 234567 }] };
     assert.equal((await request("/api/data", "PUT", { state: editedState, baseRevision: current.data.revision })).status, 200);
     current = await request("/api/data");
     assert.deepEqual(current.data.state, editedState);

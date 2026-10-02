@@ -171,6 +171,14 @@ request GET /api/data "${cookie_a}" "${status}" "${response}"
 assert_status 200 "${status}" "${response}"
 node -e 'const d=require(process.argv[1]); if(d.state?.metrics?.quotes!==3 || d.state?.training?.best!==8) process.exit(1)' "${response}"
 
+# Update an existing record, keeping its ID and leaving the amount optional.
+edited_state_payload="$(node -e 'const d=require(process.argv[1]); d.state.followups[0]={...d.state.followups[0],client:"Cliente QA atualizado",status:"Negociação ativa",next:"Confirmar medidas",priority:"Baixa",amountCents:null,done:true}; process.stdout.write(JSON.stringify({state:d.state,baseRevision:d.revision}))' "${response}")"
+request PUT /api/data "${cookie_a}" "${status}" "${response}" "${edited_state_payload}"
+assert_status 200 "${status}" "${response}"
+request GET /api/data "${cookie_a}" "${status}" "${response}"
+assert_status 200 "${status}" "${response}"
+node -e 'const d=require(process.argv[1]); const q=d.state?.followups?.[0]; if(q?.id!=="qa-1" || q.client!=="Cliente QA atualizado" || q.status!=="Negociação ativa" || q.next!=="Confirmar medidas" || q.priority!=="Baixa" || q.amountCents!==null || q.done!==true || d.state?.metrics?.quotes!==3) process.exit(1)' "${response}"
+
 request POST /api/auth/register "${cookie_b}" "${status}" "${response}" "{\"displayName\":\"QA Funcionário B\",\"username\":\"${user_b}\",\"branch\":\"São Carlos\",\"password\":\"${user_test_secret}\"}"
 assert_status 201 "${status}" "${response}"
 request GET /api/data "${cookie_b}" "${status}" "${response}"

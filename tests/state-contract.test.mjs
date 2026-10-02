@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { GUIDE_STATE_VERSION, normalizeEmployeeState, summarizeEmployeeState } from "../app/api/data/state-contract.mjs";
 import { MAX_QUOTE_AMOUNT_CENTS, formatQuoteAmount, normalizeQuoteAmountCents, parseQuoteAmount, quoteAmountInput } from "../app/lib/quote-amount.mjs";
+import { prepareFollowUpEdit } from "../app/lib/followup-edit.mjs";
 
 test("a new employee state is complete, versioned and fully zeroed", () => {
   const state = normalizeEmployeeState(null);
@@ -110,6 +111,35 @@ test("follow-up bounds preserve the newest entries shown first in the UI", () =>
   assert.equal(state.followups.length, 240);
   assert.equal(state.followups[0].id, "newest");
   assert.equal(state.followups.some((item) => item.id === "older-240"), false);
+});
+
+test("complete follow-up edits update all fields and keep the original record identity", () => {
+  const original = { id: "legacy-record", client: "Cliente", next: "Retornar", status: "A confirmar", priority: "Média", amountCents: null, done: false };
+  const result = prepareFollowUpEdit({ id: "replacement-id", client: " Cliente atualizado ", next: " Confirmar medidas ", status: "Negociação ativa", priority: "Alta", amount: "2.345,67", done: true });
+  assert.equal(result.error, "");
+  assert.deepEqual(result.values, { client: "Cliente atualizado", next: "Confirmar medidas", status: "Negociação ativa", priority: "Alta", amountCents: 234567, done: true });
+  assert.equal(Object.hasOwn(result.values, "id"), false);
+  const saved = normalizeEmployeeState({ followups: [{ ...original, ...result.values }], metrics: { quotes: 3 } });
+  assert.equal(saved.followups[0].id, original.id);
+  assert.equal(saved.followups[0].status, "Negociação ativa");
+  assert.equal(saved.followups[0].amountCents, 234567);
+  assert.equal(saved.metrics.quotes, 3);
+});
+
+test("complete follow-up editing allows an optional value and validates every editable field", () => {
+  const draft = { client: "Cliente", next: "Retornar", status: "Aguardando retorno", priority: "Média", amount: "", done: false };
+  assert.equal(prepareFollowUpEdit(draft).values.amountCents, null);
+  const invalid = [
+    ["client", "   "], ["client", "x".repeat(161)], ["next", ""], ["next", "x".repeat(241)],
+    ["status", "Qualquer status"], ["priority", "Urgente"], ["amount", "-10"],
+  ];
+  for (const [field, value] of invalid) {
+    const result = prepareFollowUpEdit({ ...draft, [field]: value });
+    assert.equal(result.values, null);
+    assert.equal(result.field, field);
+    assert.ok(result.error);
+  }
+  assert.equal(prepareFollowUpEdit({ ...draft, amount: "0,00" }).values.amountCents, 0);
 });
 
 test("factory migration preserves legacy Dalcomad kits and enforces the fixed scope", () => {

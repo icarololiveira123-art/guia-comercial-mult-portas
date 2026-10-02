@@ -6,8 +6,9 @@ import { WorkspaceIcon, type WorkspaceIconName } from "./workspace-icon";
 import { HomeWorkspace } from "./home-workspace";
 import { CatalogWorkspace } from "./catalog-workspace";
 import { AccountCenter } from "./account-center";
-import { QuoteAmountEditor } from "./quote-amount-editor";
-import { normalizeQuoteAmountCents, parseQuoteAmount, QUOTE_AMOUNT_ERROR } from "./lib/quote-amount.mjs";
+import { FollowUpRow } from "./followup-row";
+import { followUpStatusOptions as statusOptions, prepareFollowUpEdit } from "./lib/followup-edit.mjs";
+import { normalizeQuoteAmountCents } from "./lib/quote-amount.mjs";
 import { catalogItems as catalogItemData } from "./lib/catalog-items.mjs";
 import { localApiFetch } from "./lib/github-local-api.mjs";
 import { readAccessSession } from "./lib/session-check.mjs";
@@ -1146,17 +1147,7 @@ const studiedBrandCount = Object.keys(brandData).length;
 
 const catalogItems = catalogItemData as CatalogItem[];
 
-const statusOptions = [
-  "A confirmar",
-  "Aguardando medidas",
-  "Aguardando decisão",
-  "Aguardando retorno",
-  "Negociação ativa",
-  "Transferido",
-  "Venda fechada",
-  "Não vai fechar agora",
-  "Encerrado",
-];
+
 
 const defaultFollowUps: LocalFollowUp[] = [];
 
@@ -2984,16 +2975,14 @@ export default function Home() {
 
   function addFollowUp(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const parsedAmount = parseQuoteAmount(newAmount);
-    if (!parsedAmount.valid) {
-      setNewAmountError(QUOTE_AMOUNT_ERROR);
+    const result = prepareFollowUpEdit({ client: newClient, next: newNext, status: newStatus, priority: newPriority, amount: newAmount, done: false });
+    if (!result.values) {
+      if (result.field === "amount") setNewAmountError(result.error);
+      else showToast(result.error, "error");
       return;
     }
-    if (!newClient.trim() || !newNext.trim()) {
-      showToast("Preencha cliente e próxima ação", "error");
-      return;
-    }
-    setFollowUps((current) => [{ id: `local-${Date.now()}`, client: newClient.trim(), status: newStatus, next: newNext.trim(), amountCents: parsedAmount.amountCents, priority: newPriority, done: false }, ...current].slice(0, 240));
+    const values = result.values;
+    setFollowUps((current) => [{ id: `local-${Date.now()}`, ...values }, ...current].slice(0, 240));
     setNewClient("");
     setNewNext("");
     setNewAmount("");
@@ -3664,8 +3653,14 @@ export default function Home() {
 
 
             <div className="control-workspace"><section className="control-board"><section className="board-heading"><div><span className="section-kicker">QUADRO DE AÇÃO</span><h2>O que merece atenção</h2></div><select value={filterStatus} onChange={(event) => setFilterStatus(event.target.value)} aria-label="Filtrar status"><option>Todos</option>{statusOptions.map((status) => <option key={status}>{status}</option>)}</select></section>
-            <section className="followup-list">{filteredFollowUps.map((item) => <article className={`followup-row ${item.done ? "completed" : ""}`} key={item.id}><button type="button" className={`row-check ${item.done ? "checked" : ""}`} aria-label={item.done ? `Reabrir pendência de ${item.client}` : `Concluir pendência de ${item.client}`} onClick={() => setFollowUps((current) => current.map((follow) => follow.id === item.id ? { ...follow, done: !follow.done } : follow))}>{item.done ? "✓" : ""}</button><div className="follow-main"><strong>{item.client}</strong><span>{item.status}</span><QuoteAmountEditor key={authUser.id + "-" + item.id} amountCents={item.amountCents} client={item.client} onSave={(amountCents) => { setFollowUps((current) => current.map((follow) => follow.id === item.id ? { ...follow, amountCents } : follow)); showToast(amountCents === null ? "Valor removido do orçamento" : "Valor do orçamento atualizado"); }} /></div><div className="follow-next"><small>Próxima ação</small><p>{item.next}</p></div><span className={`priority-badge ${priorityClass(item.priority)}`}>{item.priority}</span>{item.id.startsWith("local-") && <button type="button" className="delete-row" aria-label={`Excluir pendência de ${item.client}`} onClick={() => setFollowUps((current) => current.filter((follow) => follow.id !== item.id))}>×</button>}</article>)}{filteredFollowUps.length === 0 && <div className="empty-state">Nenhuma pendência com este filtro.</div>}</section>
-            </section><aside className="control-entry"><section className="panel add-followup"><div><span className="section-kicker">NOVA PENDÊNCIA LOCAL</span><h2>Registrar sem perder tempo</h2></div><form onSubmit={addFollowUp}><input value={newClient} onChange={(event) => setNewClient(event.target.value)} placeholder="Cliente / orçamento" aria-label="Cliente ou orçamento" /><input value={newNext} onChange={(event) => setNewNext(event.target.value)} placeholder="Próxima ação" aria-label="Próxima ação" /><label className="quote-amount-field" htmlFor="new-quote-amount"><span>Valor do orçamento (R$) <small>opcional</small></span><input id="new-quote-amount" type="text" inputMode="decimal" maxLength={40} value={newAmount} onChange={(event) => { setNewAmount(event.target.value); setNewAmountError(""); }} placeholder="Ex.: 1.250,50" aria-invalid={Boolean(newAmountError)} aria-describedby={newAmountError ? "new-quote-amount-error" : undefined} /></label>{newAmountError && <p id="new-quote-amount-error" className="quote-amount-error" role="alert">{newAmountError}</p>}<select value={newStatus} onChange={(event) => setNewStatus(event.target.value)} aria-label="Status">{statusOptions.map((status) => <option key={status}>{status}</option>)}</select><select value={newPriority} onChange={(event) => setNewPriority(event.target.value as Priority)} aria-label="Prioridade"><option>Alta</option><option>Média</option><option>Baixa</option></select><button className="button dark" type="submit">Adicionar <span>+</span></button></form></section></aside></div>
+            <section className="followup-list">
+              {filteredFollowUps.map((item) => <FollowUpRow key={authUser.id + "-" + item.id} item={item}
+                onSave={(values) => { setFollowUps((current) => current.map((follow) => follow.id === item.id ? { ...follow, ...values, id: follow.id } : follow)); showToast("Registro atualizado na sua conta"); }}
+                onToggleDone={() => setFollowUps((current) => current.map((follow) => follow.id === item.id ? { ...follow, done: !follow.done } : follow))}
+                onDelete={() => { setFollowUps((current) => current.filter((follow) => follow.id !== item.id)); showToast("Registro removido da sua conta"); }} />)}
+              {filteredFollowUps.length === 0 && <div className="empty-state">Nenhuma pendência com este filtro.</div>}
+            </section>
+            </section><aside className="control-entry"><section className="panel add-followup"><div><span className="section-kicker">NOVA PENDÊNCIA LOCAL</span><h2>Registrar sem perder tempo</h2></div><form onSubmit={addFollowUp}><input maxLength={160} value={newClient} onChange={(event) => setNewClient(event.target.value)} placeholder="Cliente / orçamento" aria-label="Cliente ou orçamento" /><input maxLength={240} value={newNext} onChange={(event) => setNewNext(event.target.value)} placeholder="Próxima ação" aria-label="Próxima ação" /><label className="quote-amount-field" htmlFor="new-quote-amount"><span>Valor do orçamento (R$) <small>opcional</small></span><input id="new-quote-amount" type="text" inputMode="decimal" maxLength={40} value={newAmount} onChange={(event) => { setNewAmount(event.target.value); setNewAmountError(""); }} placeholder="Ex.: 1.250,50" aria-invalid={Boolean(newAmountError)} aria-describedby={newAmountError ? "new-quote-amount-error" : undefined} /></label>{newAmountError && <p id="new-quote-amount-error" className="quote-amount-error" role="alert">{newAmountError}</p>}<select value={newStatus} onChange={(event) => setNewStatus(event.target.value)} aria-label="Status">{statusOptions.map((status) => <option key={status}>{status}</option>)}</select><select value={newPriority} onChange={(event) => setNewPriority(event.target.value as Priority)} aria-label="Prioridade"><option>Alta</option><option>Média</option><option>Baixa</option></select><button className="button dark" type="submit">Adicionar <span>+</span></button></form></section></aside></div>
             <div className="control-footnote"><span>!</span><p>Campos que não estiverem confirmados devem ficar como <strong>“A confirmar”</strong> ou em branco. Não transforme alternativa em venda e não some opções de cor como se fossem um único negócio.</p></div>
             <details className="module-reference"><summary>Como manter os registros confiáveis <span>+</span></summary><section className="control-rules"><div><span className="rule-number">01</span><strong>Número imutável</strong><p>O oficial não muda.</p></div><div><span className="rule-number">02</span><strong>Um status principal</strong><p>Sem duplicidade de cobrança.</p></div><div><span className="rule-number">03</span><strong>Histórico separado</strong><p>Encerrado não volta sozinho.</p></div><div><span className="rule-number">04</span><strong>Valor exato</strong><p>Centavos preservados.</p></div></section></details>
           </div>
