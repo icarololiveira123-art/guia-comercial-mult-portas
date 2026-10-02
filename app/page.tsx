@@ -4,6 +4,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "re
 import { AuthScreen } from "./auth-screen";
 import { CatalogLearning } from "./catalog-learning";
 import { catalogItems as catalogItemData } from "./lib/catalog-items.mjs";
+import { localApiFetch } from "./lib/github-local-api.mjs";
 import { guidedCustomerReply } from "./api/coach/customer-policy.mjs";
 import {
   availableDalcomadKitValues,
@@ -55,6 +56,9 @@ type FairTone = "welcoming" | "direct" | "persuasive";
 type FairEmojiMode = "mixed" | "none" | "light" | "balanced" | "expressive";
 type SaveStatus = "idle" | "saving" | "saved" | "offline" | "error" | "conflict";
 type ToastKind = "success" | "error" | "info";
+
+const IS_GITHUB_PAGES = (import.meta as ImportMeta & { env?: Record<string, string> }).env?.VITE_GITHUB_PAGES === "true";
+const publicAssetHref = (href: string) => IS_GITHUB_PAGES && href.startsWith("/") ? `/guia-comercial-mult-portas${href}` : href;
 
 type EmployeeUser = {
   id: number;
@@ -463,7 +467,9 @@ async function apiFetch(path: string, init: RequestInit = {}, timeoutMs = 15_000
   else sourceSignal?.addEventListener("abort", abortFromSource, { once: true });
   const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(path, { ...init, credentials: "same-origin", signal: controller.signal });
+    return IS_GITHUB_PAGES
+      ? await localApiFetch(path, { ...init, signal: controller.signal })
+      : await fetch(path, { ...init, credentials: "same-origin", signal: controller.signal });
   } finally {
     window.clearTimeout(timeout);
     sourceSignal?.removeEventListener("abort", abortFromSource);
@@ -2400,6 +2406,35 @@ export default function Home() {
       setFairEmojiMode(fairEmojiModes.some((mode) => mode.id === planner.fair?.emojiMode)
         ? planner.fair?.emojiMode as FairEmojiMode
         : planner.fair?.includeEmojis === false ? "none" : "mixed");
+      if (IS_GITHUB_PAGES) {
+        try {
+          const resume = safelyParseJson(localStorage.getItem(scopedStorageKey(authUserId, "resume-v1")));
+          if (resume && typeof resume === "object" && !Array.isArray(resume)) {
+            const saved = resume as Record<string, unknown>;
+            if (typeof saved.section === "string" && sections.some((item) => item.id === saved.section)) setSection(saved.section as Section);
+            if (typeof saved.brand === "string" && Object.hasOwn(brandData, saved.brand)) setBrand(saved.brand as BrandId);
+            if (Number.isInteger(saved.salesStep) && Number(saved.salesStep) >= 0 && Number(saved.salesStep) < salesSteps.length) setActiveSalesStep(Number(saved.salesStep));
+            if (Number.isInteger(saved.timingStep) && Number(saved.timingStep) >= 0 && Number(saved.timingStep) < timingSteps.length) setActiveTimingStep(Number(saved.timingStep));
+            if (Number.isInteger(saved.trainingScenario) && Number(saved.trainingScenario) >= 0 && Number(saved.trainingScenario) < trainingScenarios.length) setActiveTrainingScenario(Number(saved.trainingScenario));
+            if (Number.isInteger(saved.factoryWizardStep) && Number(saved.factoryWizardStep) >= 0 && Number(saved.factoryWizardStep) < factoryWizardSteps.length) setFactoryWizardStep(Number(saved.factoryWizardStep));
+            if (saved.factoryWizardDraft && typeof saved.factoryWizardDraft === "object" && !Array.isArray(saved.factoryWizardDraft)) {
+              const draft = saved.factoryWizardDraft as Record<string, unknown>;
+              setFactoryWizardDraft(Object.fromEntries(factoryWizardSteps.map(({ key }) => [key, typeof draft[key] === "string" ? draft[key].slice(0, 300) : ""])) as Record<FactoryWizardField, string>);
+            }
+            if (saved.trainingStarted === true && Array.isArray(saved.trainingMessages)) {
+              const messages = saved.trainingMessages
+                .filter((item): item is { role: "customer" | "seller"; text: string } => item && typeof item === "object" && (item.role === "customer" || item.role === "seller") && typeof item.text === "string")
+                .slice(-24)
+                .map((item) => ({ role: item.role, text: item.text.slice(0, 3000) }));
+              if (messages.length) {
+                setTrainingMessages(messages);
+                setTrainingStarted(true);
+              }
+            }
+            if (typeof saved.trainingInput === "string") setTrainingInput(saved.trainingInput.slice(0, 3000));
+          }
+        } catch { /* O guia continua acessível quando o navegador bloqueia o armazenamento. */ }
+      }
       setSaveStatus(usingLocalBackup ? (navigator.onLine ? "saving" : "offline") : "saved");
       setToday(formatToday());
       skipNextAutosaveRef.current = !usingLocalBackup;
@@ -2533,7 +2568,16 @@ export default function Home() {
   }, [authUser, dailyDone, dataLoaded, doneSales, doneTiming, drawerChecks, factoryItems, fairChannel, fairCity, fairClientName, fairConsultantName, fairDiscount, fairEmojiMode, fairEventDate, fairEventTime, fairInterest, fairProfileId, fairTone, flushPendingState, followUps, hydrated, messageAudience, messageChannel, messageEnvironment, messageLine, messageName, messageObjective, messageProof, messageQuestion, messageTone, metrics, providerName, providerObjective, providerProfile, providerQuestion, providerRegion, providerType, trainingStats]);
 
   useEffect(() => {
-    if (!authUserId) return;
+    if (!IS_GITHUB_PAGES || !authUserId || !hydrated || !dataLoaded) return;
+    writeScopedLocalState(authUserId, "resume-v1", {
+      section, brand, salesStep: activeSalesStep, timingStep: activeTimingStep, trainingScenario: activeTrainingScenario,
+      factoryWizardStep, factoryWizardDraft,
+      trainingStarted, trainingMessages: trainingMessages.map(({ role, text }) => ({ role, text })).slice(-24), trainingInput,
+    });
+  }, [authUserId, hydrated, dataLoaded, section, brand, activeSalesStep, activeTimingStep, activeTrainingScenario, factoryWizardStep, factoryWizardDraft, trainingStarted, trainingMessages, trainingInput]);
+
+  useEffect(() => {
+    if (IS_GITHUB_PAGES || !authUserId) return;
     const flushOnPageHide = () => {
       const pending = pendingStateRef.current;
       if (!pending || pending.userId !== authUserId) return;
@@ -2678,11 +2722,11 @@ export default function Home() {
     : saveStatus === "conflict"
       ? "Outra aba alterou estes dados"
     : saveStatus === "offline"
-      ? "Offline · envio pendente"
+      ? IS_GITHUB_PAGES ? "Salvamento local pendente" : "Offline · envio pendente"
       : saveStatus === "error"
-        ? "Sincronização pendente"
+        ? IS_GITHUB_PAGES ? "Salvamento local pendente" : "Sincronização pendente"
         : saveStatus === "saved"
-          ? lastSavedAt ? `Salvo às ${lastSavedAt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}` : "Dados sincronizados"
+          ? lastSavedAt ? `${IS_GITHUB_PAGES ? "Salvo neste aparelho" : "Salvo"} às ${lastSavedAt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}` : IS_GITHUB_PAGES ? "Salvo neste aparelho" : "Dados sincronizados"
           : "Preparando dados";
   const providerTypeChoices = providerProfile === "Empresa" ? providerCompanyTypeOptions : providerTypeOptions;
   const providerGoalChoices = providerProfile === "Empresa" ? providerCompanyGoalOptions : providerGoalOptions;
@@ -2814,7 +2858,7 @@ export default function Home() {
 
     setProfileBusy(true);
     try {
-      if (!(await flushPendingState())) throw new Error("Sincronize as alterações pendentes antes de atualizar o perfil.");
+      if (!(await flushPendingState())) throw new Error(IS_GITHUB_PAGES ? "Salve as alterações pendentes antes de atualizar o perfil." : "Sincronize as alterações pendentes antes de atualizar o perfil.");
       const response = await apiFetch("/api/auth/profile", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -2891,7 +2935,9 @@ export default function Home() {
     setAuthError("");
     try {
       if (!(await flushPendingState())) {
-        throw new Error("Não foi possível sincronizar suas alterações. A saída foi cancelada para preservar seus dados.");
+        throw new Error(IS_GITHUB_PAGES
+          ? "Não foi possível salvar suas alterações neste aparelho. A saída foi cancelada para preservar seus dados."
+          : "Não foi possível sincronizar suas alterações. A saída foi cancelada para preservar seus dados.");
       }
       const response = await apiFetch("/api/auth/logout", { method: "POST" });
       const data = await readResponseJson<{ ok?: boolean; error?: string }>(response);
@@ -3221,6 +3267,14 @@ export default function Home() {
     setTrainingBusy(true);
 
     try {
+      if (IS_GITHUB_PAGES) {
+        const feedback = guidedCoach(scenario, sellerMessage, turn, trainingMessages);
+        if (trainingRequestRef.current?.id !== requestId) return;
+        setTrainingFeedback(feedback);
+        setTrainingMessages((current) => [...current, { role: "customer", text: feedback.customerReply }]);
+        recordTrainingRound(feedback.score, scenario.id, feedback.skillScores);
+        return;
+      }
       const response = await apiFetch("/api/coach", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -3300,7 +3354,9 @@ export default function Home() {
   }
 
   function reloadServerState() {
-    if (!authUser || !window.confirm("Recarregar a versão salva no servidor? A cópia local pendente será descartada.")) return;
+    if (!authUser || !window.confirm(IS_GITHUB_PAGES
+      ? "Recarregar a versão salva neste aparelho? As alterações locais pendentes serão descartadas."
+      : "Recarregar a versão salva no servidor? A cópia local pendente será descartada.")) return;
     pendingStateRef.current = null;
     clearScopedLocalState(authUser.id);
     setSaveStatus("idle");
@@ -3550,7 +3606,7 @@ export default function Home() {
             <span className="live-dot" />
             <div><strong>Base estudada</strong><small>{studiedCatalogCount} catálogos · {studiedBrandCount} marcas</small></div>
           </div>
-          <div className="sidebar-foot">Dados separados por funcionário · {today}</div>
+          <div className="sidebar-foot">{IS_GITHUB_PAGES ? "Dados desta conta neste aparelho" : "Dados separados por funcionário"} · {today}</div>
         </div>
       </aside>
 
@@ -3561,7 +3617,7 @@ export default function Home() {
           <div className="topbar-actions">
             <span className={`save-status ${saveStatus}`} role="status" aria-live="polite"><i />{saveStatusLabel}</span>
             {saveStatus === "conflict" && <button className="sync-reload-button" type="button" onClick={reloadServerState}>Recarregar dados salvos</button>}
-            {(saveStatus === "error" || saveStatus === "offline") && <button className="sync-reload-button" type="button" onClick={() => { void flushPendingState(); }}>Tentar sincronizar</button>}
+            {(saveStatus === "error" || saveStatus === "offline") && <button className="sync-reload-button" type="button" onClick={() => { void flushPendingState(); }}>{IS_GITHUB_PAGES ? "Tentar salvar" : "Tentar sincronizar"}</button>}
             <span className="date-chip">{today}</span>
             <div className="user-area">
               <span className="user-chip">{authUser.displayName.slice(0, 1).toUpperCase()}</span>
@@ -4009,12 +4065,12 @@ export default function Home() {
             <div className="section-intro catalog-intro"><div><span className="eyebrow"><span className="eyebrow-line" /> INTELIGÊNCIA DE PRODUTO</span><h1>Catálogo de decisão,<br /><em>não de confusão.</em></h1><p>Pesquise por marca, família ou modelo. Use o argumento e confira os pontos técnicos antes de prometer.</p></div><div className="catalog-count"><strong>{catalogItems.length}</strong><span>fichas comerciais</span><small>{studiedCatalogCount} catálogos · {studiedBrandCount} marcas</small></div></div>
             <div className="brand-tabs">{(Object.keys(brandData) as BrandId[]).map((id) => <button type="button" key={id} className={brand === id ? "active" : ""} aria-pressed={brand === id} onClick={() => selectBrand(id)}><span className="brand-tab-mark" style={{ background: brandData[id].accent }} /> <strong>{brandData[id].short}</strong><small>{brandData[id].descriptor}</small></button>)}</div>
             <div className="brand-profile panel"><div className="brand-profile-main"><div className="profile-orb" style={{ background: currentBrand.accent }}><span>{currentBrand.short.slice(0, 2).toUpperCase()}</span></div><div><span className="section-kicker">{currentBrand.catalog}</span><h2>{currentBrand.name}</h2><p>{currentBrand.summary}</p><a className="official-link" href={currentBrand.official} target="_blank" rel="noreferrer">Abrir canal oficial <span>↗</span></a></div></div><div className="profile-columns"><div><span className="mini-label">INDICAR QUANDO</span>{currentBrand.when.map((item) => <span className="profile-tag" key={item}>+ {item}</span>)}</div><div><span className="mini-label">NÃO ESQUECER</span>{currentBrand.guardrails.map((item) => <p className="guardrail" key={item}>✓ {item}</p>)}</div></div></div>
-            <CatalogLearning key={brand} brand={brand} brandName={currentBrand.short} />
-            {currentBrand.documents?.length ? <section className="catalog-documents panel" aria-label={`Catálogos em PDF de ${currentBrand.short}`}><div className="catalog-documents-heading"><div><span className="section-kicker">ARQUIVOS PARA CONSULTA</span><h2>Catálogos completos em PDF</h2></div><span>{currentBrand.documents.length} arquivos</span></div><div className="catalog-document-grid">{currentBrand.documents.map((document, index) => <a className="catalog-document-card" href={document.href} target="_blank" rel="noreferrer" key={document.href}><div><span>{String(index + 1).padStart(2, "0")}</span><strong>{document.title}</strong></div><p>{document.description}</p><small>{document.pages} páginas <b>Abrir PDF ↗</b></small></a>)}</div></section> : null}
+            <CatalogLearning key={`${authUser.id}-${brand}`} brand={brand} brandName={currentBrand.short} userId={authUser.id} />
+            {currentBrand.documents?.length ? <section className="catalog-documents panel" aria-label={`Catálogos em PDF de ${currentBrand.short}`}><div className="catalog-documents-heading"><div><span className="section-kicker">ARQUIVOS PARA CONSULTA</span><h2>Catálogos completos em PDF</h2></div><span>{currentBrand.documents.length} arquivos</span></div><div className="catalog-document-grid">{currentBrand.documents.map((document, index) => <a className="catalog-document-card" href={publicAssetHref(document.href)} target="_blank" rel="noreferrer" key={document.href}><div><span>{String(index + 1).padStart(2, "0")}</span><strong>{document.title}</strong></div><p>{document.description}</p><small>{document.pages} páginas <b>Abrir PDF ↗</b></small></a>)}</div></section> : null}
             <div className="catalog-tools" id="catalog-results"><div className="search-box"><span>⌕</span><input value={catalogSearch} onChange={(event) => setCatalogSearch(event.target.value)} placeholder={`Pesquisar em ${currentBrand.short}...`} aria-label="Pesquisar no catálogo" /></div><select value={catalogFamily} onChange={(event) => setCatalogFamily(event.target.value)} aria-label="Filtrar família">{families.map((family) => <option key={family}>{family}</option>)}</select><span className="result-count">{filteredCatalog.length} resultados</span></div>
             {filteredCatalog.length > 0 ? <div className="catalog-grid">{filteredCatalog.map((item) => <article className="catalog-card" key={item.id}><div className="card-meta"><span className="family-badge">{item.family}</span><span className="source-dot" title={item.source}>●</span></div><h3>{item.title}</h3>{item.code && <div className="catalog-code">{item.code}</div>}<p>{item.spec}</p><div className="card-bottom"><span>Indicar para <strong>{item.bestFor.split(",")[0]}</strong></span><button type="button" aria-label={`Abrir ficha de ${item.title}`} onClick={(event) => { catalogTriggerRef.current = event.currentTarget; setSelectedCatalog(item); }}>Ver ficha <span>→</span></button></div></article>)}</div> : <div className="empty-state catalog-empty"><strong>Nenhuma ficha encontrada.</strong><span>Revise o termo ou limpe os filtros para ver todas as opções desta marca.</span><button className="button light" type="button" onClick={() => { setCatalogSearch(""); setCatalogFamily("Todas"); }}>Limpar filtros</button></div>}
             <div className="catalog-note"><span>i</span><p>Os catálogos enviados são referências comerciais. Código, cor, medida final, ferragem, disponibilidade, prazo e composição devem ser confirmados antes do fechamento.</p></div>
-            {selectedCatalog && <div className="drawer-backdrop" onClick={() => setSelectedCatalog(null)}><aside className="catalog-drawer" ref={catalogDialogRef} role="dialog" aria-modal="true" aria-label={`Ficha de ${selectedCatalog.title}`} onClick={(event) => event.stopPropagation()}><button className="drawer-close" aria-label="Fechar ficha" onClick={() => setSelectedCatalog(null)}>×</button><span className="family-badge">{selectedCatalog.family}</span><h2>{selectedCatalog.title}</h2><p className="drawer-spec">{selectedCatalog.spec}</p><div className="drawer-section"><span className="mini-label">QUANDO INDICAR</span><p>{selectedCatalog.bestFor}</p></div><div className="drawer-section pitch"><span className="mini-label">ARGUMENTO DE VENDA</span><p>“{selectedCatalog.pitch}”</p><div className="drawer-actions"><button className="copy-button" onClick={() => copyMessage(selectedCatalog.pitch)}>Copiar argumento <span>⧉</span></button><button className="copy-button" onClick={() => { setMessageLine(selectedCatalog.title); setSelectedCatalog(null); navigate("messages"); }}>Planejar mensagem <span>→</span></button></div></div><div className="drawer-section"><span className="mini-label">CONFIRMAR ANTES DE FECHAR</span>{selectedCatalog.checks.map((check) => <label className="drawer-check" key={check}><input type="checkbox" checked={drawerChecks[selectedCatalog.id]?.includes(check) ?? false} onChange={() => toggleCatalogCheck(selectedCatalog.id, check)} /><span className="fake-checkbox">✓</span>{check}</label>)}</div>{selectedCatalog.documentHref && <a className="catalog-pdf-link" href={selectedCatalog.documentHref} target="_blank" rel="noreferrer">Abrir catálogo completo em PDF <span>↗</span></a>}<div className="drawer-source"><span>Fonte</span><strong>{selectedCatalog.source}</strong><small>{brandData[selectedCatalog.brand].catalog}</small></div></aside></div>}
+            {selectedCatalog && <div className="drawer-backdrop" onClick={() => setSelectedCatalog(null)}><aside className="catalog-drawer" ref={catalogDialogRef} role="dialog" aria-modal="true" aria-label={`Ficha de ${selectedCatalog.title}`} onClick={(event) => event.stopPropagation()}><button className="drawer-close" aria-label="Fechar ficha" onClick={() => setSelectedCatalog(null)}>×</button><span className="family-badge">{selectedCatalog.family}</span><h2>{selectedCatalog.title}</h2><p className="drawer-spec">{selectedCatalog.spec}</p><div className="drawer-section"><span className="mini-label">QUANDO INDICAR</span><p>{selectedCatalog.bestFor}</p></div><div className="drawer-section pitch"><span className="mini-label">ARGUMENTO DE VENDA</span><p>“{selectedCatalog.pitch}”</p><div className="drawer-actions"><button className="copy-button" onClick={() => copyMessage(selectedCatalog.pitch)}>Copiar argumento <span>⧉</span></button><button className="copy-button" onClick={() => { setMessageLine(selectedCatalog.title); setSelectedCatalog(null); navigate("messages"); }}>Planejar mensagem <span>→</span></button></div></div><div className="drawer-section"><span className="mini-label">CONFIRMAR ANTES DE FECHAR</span>{selectedCatalog.checks.map((check) => <label className="drawer-check" key={check}><input type="checkbox" checked={drawerChecks[selectedCatalog.id]?.includes(check) ?? false} onChange={() => toggleCatalogCheck(selectedCatalog.id, check)} /><span className="fake-checkbox">✓</span>{check}</label>)}</div>{selectedCatalog.documentHref && <a className="catalog-pdf-link" href={publicAssetHref(selectedCatalog.documentHref)} target="_blank" rel="noreferrer">Abrir catálogo completo em PDF <span>↗</span></a>}<div className="drawer-source"><span>Fonte</span><strong>{selectedCatalog.source}</strong><small>{brandData[selectedCatalog.brand].catalog}</small></div></aside></div>}
           </div>
         )}
 

@@ -1094,3 +1094,355 @@ h1 em { color: #cba66d; font-style: normal; }
 @media (max-width: 360px) {
   .mobile-brand strong { display: none; }
 }
+
+/* Refinements for daily use: clearer type, stronger controls, calmer cards. */
+:root {
+  --bg: #f2f4f3;
+  --muted: #57666e;
+  --line: #d6dedf;
+  --soft-line: #e2e8e8;
+}
+body { line-height: 1.5; }
+.content-shell { min-width: 0; }
+.page-content { padding-bottom: 88px; }
+.sidebar { background: #243139; }
+.sidebar-label { margin-top: 35px; color: #b0bec4; font-size: 11px; }
+.nav-item { min-height: 48px; color: #e0e9ea; }
+.nav-item:hover, .nav-item.active { background: #344650; }
+.nav-text strong { font-size: 13px; }
+.nav-text small, .nav-item.active .nav-text small { color: #c0ced1; font-size: 11px; }
+.nav-icon { color: #b3c3c7; }
+.brand-sub, .source-mini small, .sidebar-foot { color: #c0ccd0; font-size: 11px; }
+.topbar { background: #f7f8f7; }
+.save-status { max-width: none; color: #435860; font-size: 11px; }
+.user-details strong, .profile-button, .logout-button { font-size: 12px; }
+.user-details small { color: #52646b; font-size: 11px; }
+.profile-button, .logout-button { min-height: 38px; }
+.section-intro { margin-bottom: 26px; }
+.section-intro h1 { line-height: 1.1; }
+.section-intro p, .hero-copy > p { font-size: 15px; line-height: 1.7; }
+.section-kicker, .eyebrow, .mini-label { color: #526269; font-size: 11px; letter-spacing: .1em; line-height: 1.45; }
+.hero-copy .eyebrow { color: #d3dce0; }
+.panel-heading h2, .section-intro-mini h2 { font-size: 21px; line-height: 1.25; }
+.button { min-height: 44px; padding-inline: 17px; font-size: 13px; }
+.text-button, .copy-button, .next-row button, .checkpoint button, .card-bottom button { font-size: 12px; }
+.text-button, .copy-button { min-height: 36px; }
+.stat-top, .stat-card small, .next-row p, .progress-copy,
+.catalog-strip p, .principles-grid p, .seller-pillars p,
+.training-rules p, .control-rules p, .level-cards p { color: #4e6068; font-size: 12px; line-height: 1.55; }
+.dark-stat .stat-top, .dark-stat small { color: #d8e1e3; }
+.stat-card, .next-panel, .progress-panel { background: #fff; }
+.catalog-strip, .principles-grid article, .seller-pillars article,
+.training-rules > div, .control-rules > div, .level-cards article,
+.message-example-grid article { background: #fbfcfb; }
+.next-row strong, .principles-grid strong, .seller-pillars h3,
+.training-rules strong { font-size: 14px; }
+
+/* Readable inputs and an unambiguous keyboard focus indicator. */
+.auth-form label > span, .profile-form label > span,
+.message-form-grid label > span, .fair-form-grid label > span,
+.fair-event-grid label > span, .factory-locator-field > span,
+.metric-inputs span, .ticket-input span, .account-editor-form label span,
+.account-filters label > span { color: #3d5159; font-size: 11px; line-height: 1.4; }
+.auth-form input, .auth-form select, .profile-form input, .profile-form select,
+.account-editor-form input, .account-editor-form select,
+.account-filters input, .account-filters select,
+.message-form-grid input, .message-form-grid select,
+.fair-form-grid input, .fair-form-grid select, .fair-event-grid input,
+.factory-locator-field input, .factory-locator-field select,
+.metric-inputs input, .ticket-input input,
+.catalog-tools select, .board-heading select, .add-followup select,
+.training-composer textarea {
+  min-height: 44px;
+  color: #2d4149;
+  background: #fff;
+  font-size: 14px;
+}
+.search-box { min-height: 44px; height: auto; }
+.search-box input { min-height: 42px; color: #2d4149; font-size: 14px; }
+input::placeholder, textarea::placeholder { color: #637179 !important; }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible,
+textarea:focus-visible, summary:focus-visible, [tabindex]:focus-visible {
+  outline: 3px solid #93621f;
+  outline-offset: 3px;
+}
+.sidebar button:focus-visible, .hero-panel button:focus-visible,
+.management-callout button:focus-visible { outline-color: #f0c788; }
+.drawer-check input:focus-visible + .fake-checkbox,
+.message-proof-options input:focus-visible + .fake-checkbox,
+.fair-emoji-toggle input:focus-visible + .fake-checkbox,
+.daily-row input:focus-visible + .fake-checkbox,
+.timing-footer input:focus-visible + .fake-checkbox { outline: 3px solid #93621f; outline-offset: 3px; }
+
+/* Catalog: useful information stays readable without making cards taller. */
+.brand-tabs button { min-height: 67px; background: #f9fbfa; }
+.brand-tabs strong { font-size: 13px; }
+.brand-tabs small, .brand-profile p, .profile-tag, .guardrail,
+.catalog-card > p, .card-bottom > span, .card-bottom strong,
+.catalog-code, .catalog-note p, .catalog-document-card p,
+.catalog-document-card small, .catalog-document-card small b { font-size: 12px !important; line-height: 1.55 !important; }
+.brand-profile p, .catalog-card > p, .catalog-document-card p { color: #4d6168; }
+.brand-profile h2 { font-size: 24px; }
+.catalog-grid { gap: 14px; }
+.catalog-card { min-height: 220px; padding: 19px; }
+.catalog-card h3 { font-size: 18px; line-height: 1.3; }
+.card-bottom { align-items: center; gap: 15px; }
+.card-bottom strong { max-width: 170px; }
+.card-bottom button { min-height: 38px; padding-inline: 8px; }
+.catalog-document-card { min-height: 150px; }
+.catalog-document-card strong { font-size: 14px; line-height: 1.35; }
+.catalog-drawer { background: #fbfcfb; }
+.drawer-spec, .drawer-section > p, .drawer-check,
+.drawer-source strong, .drawer-source small { color: #3e525a; font-size: 13px; line-height: 1.6; }
+.drawer-close { min-width: 44px; min-height: 44px; }
+
+/* Lessons and practice maintain a comfortable reading measure. */
+.catalog-learning { padding: 28px; }
+.learning-header p, .learning-lead, .learning-stage-content p,
+.learning-sequence, .learning-list, .learning-material-grid p,
+.learning-material-grid small, .learning-document-body p,
+.learning-glossary dd { color: #40545d; font-size: 14px; line-height: 1.7; }
+.learning-stage-nav button, .learning-quiz label, .learning-next,
+.learning-document summary > strong { min-height: 44px; font-size: 13px; }
+.learning-action { min-height: 44px; font-size: 13px; }
+.learning-stage-content h3 { font-size: 22px; }
+.learning-document summary > small { color: #4f626a; font-size: 11px; }
+.scenario-copy strong, .feedback-main h2, .training-empty-state h2 { font-size: 15px; }
+.scenario-copy small, .training-hero p, .training-bubble p,
+.training-empty-state > p, .feedback-columns p,
+.learning-metric-copy p, .training-reflection-grid p { color: #455b63; font-size: 13px; line-height: 1.6; }
+.training-composer textarea { line-height: 1.5; }
+.training-filters button, .training-mode-switch button,
+.voice-record-button { min-height: 40px; font-size: 12px; }
+
+/* Planning and administrative information should be scannable. */
+.message-preview-bubble p, .fair-preview-bubble p { color: #354e43; font-size: 14px; }
+.message-trust p, .message-example-grid p, .fair-template-grid article > p,
+.factory-toolbar p, .factory-locator-header p, .factory-locator-copy p,
+.factory-note-card p, .account-heading p, .auth-heading p,
+.profile-dialog-head p { color: #4a5d63; font-size: 13px; line-height: 1.6; }
+.message-suggestions button, .message-brand-suggestions button,
+.fair-interest-options button, .fair-emoji-options button,
+.factory-suggestion-row button { min-height: 38px; padding-inline: 11px; font-size: 12px; }
+.fair-profile-grid strong, .message-audience-options strong,
+.account-main strong, .factory-submitted-row strong { font-size: 13px; }
+.fair-profile-grid small, .message-audience-options small,
+.account-main span, .account-meta span, .factory-submitted-row small { color: #52646b; font-size: 11px; }
+.account-row, .factory-submitted-row { background: #fff; }
+.metric-results span, .daily-row small, .follow-next p { color: #4c5f67; font-size: 12px; line-height: 1.5; }
+
+@media (max-width: 800px) {
+  .mobile-nav {
+    position: sticky;
+    top: 0;
+    z-index: 25;
+    gap: 7px;
+    padding: 8px 16px;
+    background: #edf1f0;
+    box-shadow: 0 3px 10px rgba(27, 44, 48, .08);
+    scrollbar-width: thin;
+    scroll-padding-inline: 16px;
+  }
+  .mobile-nav button { min-height: 44px; padding: 9px 12px; color: #40535b; font-size: 12px; font-weight: 700; }
+  .mobile-nav button.active { color: #1f3e39; box-shadow: inset 0 -3px 0 #856336, 0 2px 7px rgba(34,43,48,.06); }
+  .page-content { padding-bottom: 78px; }
+  .section-intro p { font-size: 14px; }
+  .catalog-learning { padding: 20px; }
+  .brand-tabs { gap: 8px; }
+  .brand-tabs button { min-width: 0; }
+  .factory-step-tabs button { min-height: 50px; }
+  input, select, textarea { font-size: 16px !important; }
+}
+
+@media (max-width: 600px) {
+  .topbar { gap: 8px; }
+  .save-status { max-width: 112px; font-size: 10px; }
+  .profile-button { min-height: 40px; font-size: 11px; }
+  .logout-button { min-width: 42px; min-height: 40px; font-size: 0; }
+  .logout-button::after { font-size: 11px; }
+  .fair-form-grid, .fair-event-grid, .metric-inputs { grid-template-columns: 1fr; }
+  .fair-interest-field, .fair-interest-options { grid-column: auto; }
+  .catalog-tools select { min-width: 0; }
+  .catalog-card { min-height: 0; }
+  .learning-stage-nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .learning-stage-nav button { min-width: 0; }
+  .learning-document summary { row-gap: 4px; }
+  .account-card { padding: 18px; }
+}
+
+@media (max-width: 420px) {
+  .learning-stage-nav { grid-template-columns: 1fr; }
+  .hero-copy { padding: 28px 22px; }
+  .hero-proof { font-size: 12px; }
+  .section-intro h1, .hero-copy h1 { font-size: 33px; }
+  .catalog-tools { align-items: stretch; flex-direction: column; }
+  .catalog-tools select { width: 100%; }
+  .result-count { align-self: flex-start; }
+}
+
+/* Beginner lesson: the drawing is illustrative; the definitions remain text. */
+.learning-stage-help { margin-top: 21px; color: #50636a; font-size: 13px; line-height: 1.55; }
+.learning-stage-nav { margin-top: 12px; }
+.learning-stage-nav button {
+  display: grid;
+  grid-template-columns: 25px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 68px;
+  background: #f8faf9;
+}
+.learning-stage-nav button.active { box-shadow: inset 0 -3px 0 #a07439; }
+.learning-stage-number { align-self: start; color: #825d31; font-size: 12px; font-weight: 900; }
+.learning-stage-copy { display: grid; gap: 4px; min-width: 0; }
+.learning-stage-copy strong { color: #2e434b; font-size: 13px; line-height: 1.25; }
+.learning-stage-copy small { color: #51636a; font-size: 11px; font-weight: 500; line-height: 1.35; }
+.learning-anatomy {
+  margin: 23px 0;
+  padding: 20px;
+  border: 1px solid #d9e2dd;
+  border-radius: 12px;
+  background: #f8faf7;
+}
+.learning-anatomy-heading { display: grid; gap: 5px; }
+.learning-anatomy-heading strong { color: #304b45; font-size: 17px; line-height: 1.3; }
+.learning-anatomy-heading > span:last-child { color: #4c6263; font-size: 12px; line-height: 1.5; }
+.learning-anatomy-visuals { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; margin-top: 18px; }
+.learning-anatomy-front, .learning-anatomy-passage {
+  position: relative;
+  min-height: 214px;
+  overflow: hidden;
+  border: 1px solid #d5ddd8;
+  border-radius: 9px;
+  background: repeating-linear-gradient(0deg, #e9e5d9, #e9e5d9 17px, #e2ded2 18px, #e2ded2 19px);
+}
+.learning-anatomy-wall-label, .learning-anatomy-passage-label {
+  position: absolute;
+  z-index: 2;
+  top: 11px;
+  left: 12px;
+  padding: 4px 7px;
+  border-radius: 4px;
+  color: #3a514a;
+  background: rgba(255,255,255,.95);
+  font-size: 11px;
+  font-weight: 800;
+}
+.learning-anatomy-opening, .learning-anatomy-passage-opening {
+  position: absolute;
+  top: 49px;
+  right: 23%;
+  bottom: 0;
+  left: 23%;
+  background: #f8faf9;
+  box-shadow: 0 0 0 3px #ab9980;
+}
+.learning-anatomy-frame {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  padding: 9px 7px 0;
+  border: 8px solid #795d42;
+  border-bottom: 0;
+}
+.learning-anatomy-frame-label {
+  position: absolute;
+  z-index: 2;
+  top: -4px;
+  left: 50%;
+  width: max-content;
+  max-width: 120%;
+  padding: 3px 5px;
+  transform: translateX(-50%);
+  color: #fff;
+  background: #684b32;
+  font-size: 10px;
+  font-weight: 700;
+  text-align: center;
+}
+.learning-anatomy-leaf {
+  display: grid;
+  place-items: center;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border: 2px solid #a4794e;
+  color: #354b40;
+  background: linear-gradient(90deg, #d2b78d, #e6cda2 52%, #caac80);
+  font-size: 13px;
+  font-weight: 900;
+}
+.learning-anatomy-leaf::after {
+  content: "";
+  position: absolute;
+  top: 53%;
+  right: 8px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #635a47;
+}
+.learning-anatomy-passage { background: #e9eee9; }
+.learning-anatomy-passage-opening {
+  right: 16%;
+  left: 16%;
+  border: 8px solid #795d42;
+  border-bottom: 0;
+  box-shadow: none;
+  background: #f5f8f5;
+}
+.learning-anatomy-open-leaf {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  display: grid;
+  align-items: center;
+  width: 30%;
+  padding-left: 6px;
+  border-right: 3px solid #896946;
+  color: #354b40;
+  background: #d5b889;
+  font-size: 11px;
+  font-weight: 800;
+}
+.learning-anatomy-free-space {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  left: 34%;
+  transform: translateY(-50%);
+  color: #2d5d51;
+  font-size: 12px;
+  font-weight: 800;
+  text-align: center;
+  line-height: 1.3;
+}
+.learning-anatomy-terms { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 11px; margin-top: 13px; }
+.learning-anatomy-terms > div { padding: 12px; border: 1px solid #dbe5df; border-radius: 8px; background: #fff; }
+.learning-anatomy-terms dt { color: #31574a; font-size: 13px; font-weight: 800; }
+.learning-anatomy-terms dd { margin: 5px 0 0; color: #485b61; font-size: 12px; line-height: 1.55; }
+
+@media (max-width: 900px) {
+  .learning-anatomy-terms { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 600px) {
+  .learning-stage-nav button { min-height: 64px; }
+  .learning-anatomy { padding: 15px; }
+  .learning-anatomy-visuals { grid-template-columns: 1fr; }
+  .learning-anatomy-front, .learning-anatomy-passage { min-height: 205px; }
+  .learning-anatomy-terms { grid-template-columns: 1fr; }
+}
+
+:is(.catalog-document-card, .catalog-pdf-link, .learning-stage-nav button,
+  .learning-action, .learning-footer a, .learning-answer summary,
+  .learning-glossary summary, .catalog-card, .scenario-card,
+  .training-filters button, .brand-tabs button, .mobile-nav button,
+  .text-button, .drawer-close, .copy-button):focus-visible {
+  outline: 3px solid #93621f;
+  outline-offset: 3px;
+}
+.sidebar .nav-item:focus-visible, .hero-panel .button:focus-visible,
+.management-callout .button:focus-visible {
+  outline: 3px solid #f0c788;
+  outline-offset: 3px;
+}

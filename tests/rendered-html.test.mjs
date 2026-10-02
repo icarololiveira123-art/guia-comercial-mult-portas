@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { readFile, stat } from "node:fs/promises";
+import { readFile, readdir, stat } from "node:fs/promises";
 import test from "node:test";
 import { brimakDocumentLessons } from "../app/lib/catalog-learning.mjs";
 
@@ -43,24 +43,29 @@ test("robots policy keeps the internal guide out of search indexes", async () =>
   assert.match(robots, /^User-agent: \*\nDisallow: \/\s*$/);
 });
 
-test("GitHub Pages builds a self-contained catalog and lessons at the repository path", async () => {
+test("GitHub Pages builds the complete guide with local accounts and lessons at the repository path", async () => {
   const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
-  assert.equal(packageJson.scripts["build:github"], "node scripts/build-github-site.mjs");
+  assert.equal(packageJson.scripts["build:github"], "node scripts/build-github-integrated.mjs");
 
   const root = new URL("../", import.meta.url);
-  await execFileAsync(process.execPath, ["scripts/build-github-site.mjs"], { cwd: root });
+  await execFileAsync(process.execPath, ["scripts/build-github-integrated.mjs"], { cwd: root });
   const html = await readFile(new URL("../dist-pages/index.html", import.meta.url), "utf8");
-  const app = await readFile(new URL("../dist-pages/app.js", import.meta.url), "utf8");
-  await stat(new URL("../dist-pages/styles.css", import.meta.url));
-  await stat(new URL("../dist-pages/catalog-learning.mjs", import.meta.url));
-  await stat(new URL("../dist-pages/catalog-items.mjs", import.meta.url));
+  const assetNames = await readdir(new URL("../dist-pages/assets/", import.meta.url));
+  const scriptName = assetNames.find((name) => /^index-.*\.js$/.test(name));
+  const styleName = assetNames.find((name) => /^index-.*\.css$/.test(name));
+  assert.ok(scriptName);
+  assert.ok(styleName);
+  const app = await readFile(new URL(`../dist-pages/assets/${scriptName}`, import.meta.url), "utf8");
+  await stat(new URL(`../dist-pages/assets/${styleName}`, import.meta.url));
+  await stat(new URL("../dist-pages/.nojekyll", import.meta.url));
 
   assert.match(html, /lang="pt-BR"/);
-  assert.match(html, /src="\.\/app\.js"/);
-  assert.match(html, /href="\.\/styles\.css"/);
+  assert.match(html, new RegExp(`src="/guia-comercial-mult-portas/assets/${scriptName}"`));
+  assert.match(html, new RegExp(`href="/guia-comercial-mult-portas/assets/${styleName}"`));
   assert.doesNotMatch(html + app, /http-equiv=["']refresh|window\.location\.(?:replace|assign)|chatgpt\.site/i);
-  assert.match(app, /catalog-learning\.mjs/);
-  assert.match(app, /catalog-items\.mjs/);
+  for (const required of ["Crie seu acesso", "ESCOLA DO CATÁLOGO", "Dados desta conta neste aparelho", "mult-portas-pages-accounts-v1", "Tentar salvar"]) {
+    assert.ok(app.includes(required), `Versão Pages sem ${required}`);
+  }
 
   for (const lesson of brimakDocumentLessons) {
     const pdf = await readFile(new URL(`../dist-pages${lesson.href}`, import.meta.url));

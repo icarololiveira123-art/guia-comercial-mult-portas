@@ -29,6 +29,7 @@ type AuthScreenProps = {
  */
 export function AuthScreen({ mode, setMode, form, setForm, error, busy, onSubmit }: AuthScreenProps) {
   const isRegister = mode === "register";
+  const isGithubPages = (import.meta as ImportMeta & { env?: Record<string, string> }).env?.VITE_GITHUB_PAGES === "true";
   const update = (key: keyof AuthFormState, value: string) => setForm((current) => ({ ...current, [key]: value }));
 
   return (
@@ -93,7 +94,9 @@ export function AuthScreen({ mode, setMode, form, setForm, error, busy, onSubmit
           </button>
         </form>
 
-        <div className="auth-note"><span>✓</span><p>Ao sair, somente a sessão deste guia será encerrada. O acesso ao restante da plataforma permanece como está.</p></div>
+        <div className="auth-note"><span>✓</span><p>{isGithubPages
+          ? "Cada conta guarda seus registros neste navegador e aparelho. Em outro aparelho, os cadastros e o progresso não aparecem automaticamente. Este login local não protege dados sensíveis."
+          : "Ao sair, somente a sessão deste guia será encerrada. O acesso ao restante da plataforma permanece como está."}</p></div>
       </section>
     </main>
   );
