@@ -28,7 +28,9 @@ As aulas são material de estudo. Confirme especificações, composição, medid
 
 É possível criar um login para cada funcionário. Os registros, pendências, respostas das aulas e a última seção ou etapa aberta são salvos **separadamente por conta neste navegador e aparelho**. Ao sair e entrar novamente na mesma conta, o guia retoma esse progresso. Entrar em outra conta carrega os dados dessa outra pessoa.
 
-O GitHub Pages publica arquivos estáticos e não executa o servidor de autenticação nem um banco compartilhado. Por isso, as contas locais **não sincronizam entre aparelhos ou navegadores**, e apagar os dados do navegador pode apagar cadastros e progresso. A tela de login local organiza a experiência, mas **não protege informações sensíveis** contra quem tem acesso ao aparelho ou ao armazenamento do site. Evite registrar dados sensíveis de clientes nessa versão. A gestão central de contas da equipe exige um servidor. No Pages, o treinador usa respostas guiadas, sem a API de IA.
+No primeiro uso, a opção **Configurar admin** permite criar uma senha de administrador local. Depois, entre com o usuário `admin` e essa senha para listar, criar, editar e apagar apenas as contas existentes no mesmo navegador. A senha é guardada como hash com salt. O antigo administrador do servidor não é migrado automaticamente para o GitHub Pages.
+
+O GitHub Pages publica arquivos estáticos e não executa o servidor de autenticação nem um banco compartilhado. Por isso, as contas locais **não sincronizam entre aparelhos ou navegadores**, e apagar os dados do navegador pode apagar cadastros e progresso. A tela de login e o admin locais organizam a experiência, mas **não protegem informações sensíveis** contra quem tem acesso ao aparelho ou ao armazenamento do site. Evite registrar dados sensíveis de clientes nessa versão. A gestão central de contas da equipe exige um servidor. No Pages, o treinador usa respostas guiadas, sem a API de IA.
 
 ## Publicação e desenvolvimento
 

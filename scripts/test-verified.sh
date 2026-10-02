@@ -17,6 +17,7 @@ exec node --experimental-loader "${SITES_PROJECT_ROOT}/tests/cloudflare-workers-
   "${SITES_PROJECT_ROOT}/tests/coach-quality.test.mjs" \
   "${SITES_PROJECT_ROOT}/tests/fair-messages.test.mjs" \
   "${SITES_PROJECT_ROOT}/tests/github-local-api.test.mjs" \
+  "${SITES_PROJECT_ROOT}/tests/github-local-admin.test.mjs" \
   "${SITES_PROJECT_ROOT}/tests/github-user-isolation.test.mjs" \
   "${SITES_PROJECT_ROOT}/tests/password-hashing.test.mjs" \
   "${SITES_PROJECT_ROOT}/tests/provider-messages.test.mjs" \

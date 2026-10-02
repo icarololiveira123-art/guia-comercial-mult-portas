@@ -73,7 +73,7 @@ test("GitHub Pages account and data API stays local, hashed and account-scoped",
     assert.equal(profile.data.user.username, "alice.new");
     assert.equal((await call("/api/auth/login", "POST", { username: "alice", password: "long-password-1" })).status, 401);
     assert.deepEqual((await call("/api/data")).data.state, { sales: ["item-b"] });
-    assert.equal((await call("/api/admin/users")).status, 501);
+    assert.equal((await call("/api/admin/users")).status, 401);
     assert.deepEqual((await call("/api/auth/me")).data.admin, false);
   } finally {
     if (previousLocal === undefined) delete globalThis.localStorage;

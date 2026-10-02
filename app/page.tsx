@@ -67,7 +67,7 @@ type EmployeeUser = {
   branch: "Araraquara" | "São Carlos";
 };
 
-type AuthMode = "login" | "register";
+type AuthMode = "login" | "register" | "admin-setup";
 
 type AuthFormState = {
   displayName: string;
@@ -1791,7 +1791,9 @@ function AccountCenter({ onLogout, externalError }: { onLogout: () => Promise<vo
         <div className="account-heading">
           <span className="section-kicker">GESTÃO DE FUNCIONÁRIOS</span>
           <h1 id="accounts-title">Perfis sob controle.</h1>
-          <p>Crie, edite ou apague perfis e consulte os registros separados de cada funcionário.</p>
+          <p>{IS_GITHUB_PAGES
+            ? "Gerencie os perfis e registros salvos neste navegador. Contas criadas em outros aparelhos não aparecem aqui; este acesso local não protege dados sensíveis."
+            : "Crie, edite ou apague perfis e consulte os registros separados de cada funcionário."}</p>
         </div>
 
         {(error || externalError) && <div className="auth-error" role="alert">{error || externalError}</div>}
@@ -1799,7 +1801,7 @@ function AccountCenter({ onLogout, externalError }: { onLogout: () => Promise<vo
 
         <section className="account-overview" aria-label="Resumo da equipe">
           <div><strong>{accounts.length}</strong><span>funcionários</span><small>perfis com dados separados</small></div>
-          <div><strong>{accounts.filter((account) => account.dataUpdatedAt).length}</strong><span>contas utilizadas</span><small>com registros sincronizados</small></div>
+          <div><strong>{accounts.filter((account) => account.dataUpdatedAt).length}</strong><span>contas utilizadas</span><small>{IS_GITHUB_PAGES ? "com registros neste aparelho" : "com registros sincronizados"}</small></div>
           <div><strong>{trainedAccounts.length}</strong><span>em treinamento</span><small>com pelo menos uma rodada</small></div>
           <div><strong>{trainedAccounts.length ? `${averageLearning}/100` : "—"}</strong><span>aprendizado médio</span><small>somente quem já treinou</small></div>
         </section>
@@ -1916,6 +1918,7 @@ export default function Home() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
   const [authMode, setAuthMode] = useState<AuthMode>("login");
+  const [adminSetupAvailable, setAdminSetupAvailable] = useState(false);
   const [authForm, setAuthForm] = useState<AuthFormState>({
     displayName: "",
     username: "",
@@ -2240,6 +2243,16 @@ export default function Home() {
       .catch(() => {
         if (!cancelled) setAuthLoading(false);
       });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!IS_GITHUB_PAGES) return;
+    let cancelled = false;
+    apiFetch("/api/auth/admin/status", { cache: "no-store" })
+      .then(async (response) => response.ok ? await readResponseJson<{ configured?: boolean }>(response) : { configured: true })
+      .then((data) => { if (!cancelled) setAdminSetupAvailable(data.configured === false); })
+      .catch(() => { if (!cancelled) setAdminSetupAvailable(false); });
     return () => { cancelled = true; };
   }, []);
 
@@ -2893,15 +2906,17 @@ export default function Home() {
   async function handleAuthSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setAuthError("");
-    if (authMode === "register" && authForm.password !== authForm.confirmPassword) {
+    if ((authMode === "register" || authMode === "admin-setup") && authForm.password !== authForm.confirmPassword) {
       setAuthError("As senhas não coincidem.");
       return;
     }
 
     setAuthBusy(true);
     try {
-      const endpoint = authMode === "register" ? "/api/auth/register" : "/api/auth/login";
-      const body = authMode === "register"
+      const endpoint = authMode === "admin-setup" ? "/api/auth/admin/setup" : authMode === "register" ? "/api/auth/register" : "/api/auth/login";
+      const body = authMode === "admin-setup"
+        ? { password: authForm.password }
+        : authMode === "register"
         ? { displayName: authForm.displayName, username: authForm.username, branch: authForm.branch, password: authForm.password }
         : { username: authForm.username, password: authForm.password };
       const response = await apiFetch(endpoint, {
@@ -2920,6 +2935,7 @@ export default function Home() {
       setDataLoadError("");
       revisionRef.current = null;
       setIsAdmin(data.admin === true);
+      if (authMode === "admin-setup") setAdminSetupAvailable(false);
       setAuthUser(data.user ?? null);
       setAuthForm({ displayName: "", username: "", branch: "Araraquara", password: "", confirmPassword: "" });
       setSection("overview");
@@ -3573,7 +3589,7 @@ export default function Home() {
   }
 
   if (!authUser && !isAdmin) {
-    return <AuthScreen mode={authMode} setMode={(mode) => { setAuthMode(mode); setAuthError(""); }} form={authForm} setForm={setAuthForm} error={authError} busy={authBusy} onSubmit={handleAuthSubmit} />;
+    return <AuthScreen mode={authMode} setMode={(mode) => { setAuthMode(mode); setAuthError(""); }} form={authForm} setForm={setAuthForm} error={authError} busy={authBusy} adminSetupAvailable={adminSetupAvailable} onSubmit={handleAuthSubmit} />;
   }
 
   if (isAdmin) return <AccountCenter onLogout={handleLogout} externalError={authError} />;
@@ -4062,8 +4078,13 @@ export default function Home() {
 
         {section === "catalog" && (
           <div className="page-content">
-            <div className="section-intro catalog-intro"><div><span className="eyebrow"><span className="eyebrow-line" /> INTELIGÊNCIA DE PRODUTO</span><h1>Catálogo de decisão,<br /><em>não de confusão.</em></h1><p>Pesquise por marca, família ou modelo. Use o argumento e confira os pontos técnicos antes de prometer.</p></div><div className="catalog-count"><strong>{catalogItems.length}</strong><span>fichas comerciais</span><small>{studiedCatalogCount} catálogos · {studiedBrandCount} marcas</small></div></div>
-            <div className="brand-tabs">{(Object.keys(brandData) as BrandId[]).map((id) => <button type="button" key={id} className={brand === id ? "active" : ""} aria-pressed={brand === id} onClick={() => selectBrand(id)}><span className="brand-tab-mark" style={{ background: brandData[id].accent }} /> <strong>{brandData[id].short}</strong><small>{brandData[id].descriptor}</small></button>)}</div>
+            <div className="section-intro catalog-intro"><div><span className="eyebrow"><span className="eyebrow-line" /> GUIA DE PRODUTOS</span><h1>Aprenda o produto.<br /><em>Depois indique com confiança.</em></h1><p>Comece por uma marca, entenda materiais e medidas na aula e só depois compare as fichas. Cada conta guarda sua etapa de estudo.</p></div><div className="catalog-count"><strong>{catalogItems.length}</strong><span>fichas comerciais</span><small>{studiedCatalogCount} catálogos · {studiedBrandCount} marcas</small></div></div>
+            <nav className="catalog-start-cards" aria-label="Como estudar o catálogo">
+              <a href="#catalog-brands"><span>01</span><strong>Escolha uma marca</strong><small>Veja qual linha você quer aprender.</small></a>
+              <a href="#catalog-learning-title"><span>02</span><strong>Faça a aula</strong><small>Conheça material, medidas e qualidade.</small></a>
+              <a href="#catalog-results"><span>03</span><strong>Abra uma ficha</strong><small>Confirme o modelo antes de orçar.</small></a>
+            </nav>
+            <div className="brand-tabs" id="catalog-brands">{(Object.keys(brandData) as BrandId[]).map((id) => <button type="button" key={id} className={brand === id ? "active" : ""} aria-pressed={brand === id} onClick={() => selectBrand(id)}><span className="brand-tab-mark" style={{ background: brandData[id].accent }} /> <strong>{brandData[id].short}</strong><small>{brandData[id].descriptor}</small></button>)}</div>
             <div className="brand-profile panel"><div className="brand-profile-main"><div className="profile-orb" style={{ background: currentBrand.accent }}><span>{currentBrand.short.slice(0, 2).toUpperCase()}</span></div><div><span className="section-kicker">{currentBrand.catalog}</span><h2>{currentBrand.name}</h2><p>{currentBrand.summary}</p><a className="official-link" href={currentBrand.official} target="_blank" rel="noreferrer">Abrir canal oficial <span>↗</span></a></div></div><div className="profile-columns"><div><span className="mini-label">INDICAR QUANDO</span>{currentBrand.when.map((item) => <span className="profile-tag" key={item}>+ {item}</span>)}</div><div><span className="mini-label">NÃO ESQUECER</span>{currentBrand.guardrails.map((item) => <p className="guardrail" key={item}>✓ {item}</p>)}</div></div></div>
             <CatalogLearning key={`${authUser.id}-${brand}`} brand={brand} brandName={currentBrand.short} userId={authUser.id} />
             {currentBrand.documents?.length ? <section className="catalog-documents panel" aria-label={`Catálogos em PDF de ${currentBrand.short}`}><div className="catalog-documents-heading"><div><span className="section-kicker">ARQUIVOS PARA CONSULTA</span><h2>Catálogos completos em PDF</h2></div><span>{currentBrand.documents.length} arquivos</span></div><div className="catalog-document-grid">{currentBrand.documents.map((document, index) => <a className="catalog-document-card" href={publicAssetHref(document.href)} target="_blank" rel="noreferrer" key={document.href}><div><span>{String(index + 1).padStart(2, "0")}</span><strong>{document.title}</strong></div><p>{document.description}</p><small>{document.pages} páginas <b>Abrir PDF ↗</b></small></a>)}</div></section> : null}

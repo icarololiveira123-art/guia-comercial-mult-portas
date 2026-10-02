@@ -20,10 +20,25 @@ export const beginnerGlossary = [
 ];
 
 export const materialGuide = [
-  { name: "Madeira, MDF e HDF", read: "Descubra o núcleo, o revestimento, a classificação de uso/umidade e se folha, batente e guarnição são vendidos juntos.", avoid: "A aparência amadeirada não prova espécie, madeira maciça nem uso externo." },
-  { name: "Alumínio", read: "Compare linha/perfil, acabamento, união, folhas, ferragens, vidro e vedação da peça com código definido.", avoid: "O nome ou número da linha não é uma medida do vão nem um laudo de desempenho." },
-  { name: "Aço", read: "Confira proteção contra corrosão, primer ou pintura final, bordas, fechadura, vidro e manutenção adequada ao ambiente.", avoid: "Não suponha galvanização ou resistência à chuva pela cor branca ou pela foto." },
-  { name: "PVC", read: "Confira perfil, reforço interno, solda, drenagem, guarnição, ferragens e vidro da linha escolhida.", avoid: "PVC por si só não garante um valor de isolamento térmico ou acústico para todo modelo." },
+  { name: "Madeira, MDF e HDF", read: "Descubra o núcleo, o revestimento, a classificação de uso/umidade e se folha, batente e guarnição são vendidos juntos.", avoid: "A aparência amadeirada não prova espécie, madeira maciça nem uso externo.", ask: "A descrição fala de madeira maciça, painel, revestimento ou só da aparência?" },
+  { name: "Alumínio", read: "Compare linha/perfil, acabamento, união, folhas, ferragens, vidro e vedação da peça com código definido.", avoid: "O nome ou número da linha não é uma medida do vão nem um laudo de desempenho.", ask: "Quais folhas abrem, qual é a passagem livre e o que acompanha este código?" },
+  { name: "Aço", read: "Confira proteção contra corrosão, primer ou pintura final, bordas, fechadura, vidro e manutenção adequada ao ambiente.", avoid: "Não suponha galvanização ou resistência à chuva pela cor branca ou pela foto.", ask: "Qual proteção e acabamento final são previstos para o ambiente da obra?" },
+  { name: "PVC", read: "Confira perfil, reforço interno, solda, drenagem, guarnição, ferragens e vidro da linha escolhida.", avoid: "PVC por si só não garante um valor de isolamento térmico ou acústico para todo modelo.", ask: "Há especificação do vidro, ferragens e desempenho para esta peça específica?" },
+];
+
+export const measurementTypes = [
+  { name: "Folha", meaning: "A parte que se movimenta. A largura nominal da folha não diz, sozinha, qual abertura deve existir na parede.", source: "Descrição da folha ou do kit" },
+  { name: "Conjunto", meaning: "Dimensão externa informada para a peça montada, que pode incluir marco, folhas e componentes conforme o código.", source: "Tabela da variante escolhida" },
+  { name: "Vão acabado", meaning: "Abertura real da obra após os acabamentos previstos. Deve ser medida em mais de um ponto.", source: "Medição da obra" },
+  { name: "Vão livre", meaning: "Espaço efetivo de passagem ou ventilação quando a peça está aberta. Pode ser menor que o conjunto.", source: "Ficha ou confirmação do fabricante" },
+];
+
+export const readingChecklist = [
+  { name: "1. Identifique a peça", prompt: "Marca, linha, código, função e modo de abertura. A foto pode mostrar outra variante." },
+  { name: "2. Separe os componentes", prompt: "Material da folha/estrutura, marco, acabamento, vidro, ferragens e itens opcionais." },
+  { name: "3. Copie as medidas com unidade", prompt: "Escreva se são da folha, do conjunto ou do vão livre. Registre o vão da obra à parte." },
+  { name: "4. Verifique o uso e a qualidade", prompt: "Ambiente previsto, proteção, vedação, manutenção, instrução de instalação e garantia da variante." },
+  { name: "5. Marque o que falta", prompt: "Se a ficha não trouxer folga, lado, vidro, disponibilidade ou desempenho, confirme antes de cotar." },
 ];
 
 export const measurementMethod = [
@@ -51,6 +66,7 @@ export const learningByBrand = {
     ],
     measures: "Anote separadamente largura × altura da folha, dimensão externa do kit, largura × altura do vão acabado, espessura da parede e sentido de abertura. O manual técnico mostra que essas três larguras são diferentes; use a tabela da linha atual para cotar.",
     quality: ["Veja uniformidade do revestimento e das bordas, integridade da folha e alinhamento do conjunto.", "Confirme vedação, dobradiças e fechadura previstas na ficha, além da classificação de uso/umidade e instalação recomendada."],
+    questions: ["O código é de folha avulsa ou kit completo?", "Qual é o núcleo, o revestimento e a indicação de uso/umidade da linha?", "Qual tabela relaciona folha, kit, vão e espessura da parede?"],
     scenario: "A pessoa diz 'minha porta é 80 × 210 cm'. Você já sabe qual kit e qual vão pedir?",
     reasoning: "Ainda não. Pergunte se 80 × 210 é a folha, o kit ou o vão; meça a abertura, espessura da parede e lado, depois consulte a tabela da linha escolhida. Um exemplo de um manual não substitui a ficha vigente.",
     quiz: { prompt: "A medida da folha serve sozinha para encomendar o kit?", options: ["Sim, basta somar uma folga fixa.", "Não; faltam vão, parede, lado e tabela da linha.", "Sim, desde que a cor esteja definida."], answer: 1, why: "Folha, kit e vão têm dimensões diferentes. A folga depende da solução e da instalação." },
@@ -62,6 +78,7 @@ export const learningByBrand = {
     materials: ["Leia separadamente o material da folha e o material do batente; aparência de madeira não informa, por si, núcleo ou resistência à umidade.", "Confira acabamento do batente (branco ou preparado para pintura), guarnição e fechadura no código exato."],
     measures: "Anote medida externa do produto, vão acabado, espessura da parede/requadro, piso final e etiqueta de lado direito/esquerdo. Nunca leia a largura nominal da folha como largura necessária do vão.",
     quality: ["No recebimento, veja danos, empenamento, bordas, pintura e alinhamento; compare com a especificação da peça.", "Conte ferragens e peças do conjunto e confira armazenamento e instruções do fabricante antes da instalação."],
+    questions: ["A folha e o batente usam o mesmo material?", "Quais ferragens, guarnições e acabamentos acompanham este código?", "Qual é a dimensão externa do kit e qual o lado pela etiqueta?"],
     scenario: "Uma obra tem parede de 12 cm e pede uma porta 'de 75'. Qual é o próximo passo?",
     reasoning: "Registre se '75' é folha, peça completa ou vão, confirme lado e meça o vão. Localize no catálogo vigente o requadro compatível com a parede e a composição do kit antes de reservar.",
     quiz: { prompt: "O que uma etiqueta direita/esquerda ajuda a confirmar?", options: ["O sentido da abertura do modelo.", "A espessura do vidro.", "A resistência à chuva."], answer: 0, why: "O lado deve ser lido pela convenção e etiqueta do fabricante; não indica vidro nem desempenho." },
@@ -73,6 +90,7 @@ export const learningByBrand = {
     materials: ["Identifique a madeira e o acabamento informados para aquele código; não suponha que todo modelo seja da mesma espécie ou maciço.", "Vidro, guarnição, pivô, grade e ferragem precisam aparecer na descrição do conjunto para entrar na proposta."],
     measures: "Copie a dimensão final do conjunto e a dimensão de cada folha em campos diferentes. Confirme altura, largura, vão acabado, sentido, piso e exigências de montagem; modelos especiais ficam sob consulta.",
     quality: ["Confira secagem, acabamento das faces e bordas, emendas, estabilidade e integridade no recebimento conforme a ficha.", "Para portas com vidro ou pivô, confirme acessórios incluídos, instalação e manutenção do modelo, sem inferir pela imagem."],
+    questions: ["É folha, porta montada, portal ou conjunto?", "Qual madeira e qual acabamento estão escritos no código?", "Quais são as medidas totais e as medidas de cada folha?"],
     scenario: "Uma foto mostra duas folhas de 72 cm num portal. O conjunto final mede apenas 144 cm?",
     reasoning: "Não deduza. O portal, marco e ferragens alteram a medida final; leia no código do catálogo a dimensão total e confirme se a ficha é de folha ou conjunto montado.",
     quiz: { prompt: "Duas peças com a mesma foto e códigos diferentes podem ter a mesma composição?", options: ["Sempre: a foto define tudo.", "Não necessariamente; uma pode ser folha e a outra, conjunto montado.", "Sim, se ambas forem de madeira."], answer: 1, why: "Código e descrição determinam o que acompanha cada item; a foto não substitui a ficha." },
@@ -84,6 +102,7 @@ export const learningByBrand = {
     materials: ["Alumínio é o material da estrutura; vidro, grade, puxador e ferragens variam conforme modelo e não devem ser presumidos.", "L25, L30 e Linha 16 são nomes de famílias/perfis, não medidas do vão nem uma nota automática de qualidade."],
     measures: "Registre largura × altura do vão, dimensões do produto, folhas móveis/fixas, grade, vidro, cor e lado de abertura conforme a ficha. Em correr, confira a passagem livre; em giro ou projetante, confira o espaço de movimento.",
     quality: ["Observe uniformidade do acabamento, encaixes, travamento, trilhos, fechos e vedação prevista para a peça.", "Compare resistência, estanqueidade e manutenção somente com especificação ou ensaio daquele modelo, não pela cor ou número da linha."],
+    questions: ["É porta, janela, veneziana ou outra abertura?", "A sigla da linha representa um perfil ou uma dimensão?", "Quais folhas são móveis e qual passagem/ventilação sobra?"],
     scenario: "O cliente quer ventilação e privacidade no quarto. Qual pergunta vem antes de escolher uma veneziana?",
     reasoning: "Pergunte dimensão do vão, ventilação e iluminação desejadas, quantidade de folhas móveis, necessidade de grade, cor e vidro. Compare janela e veneziana da linha adequada na ficha oficial.",
     quiz: { prompt: "O nome L25 informa a largura do vão?", options: ["Sim: significa 25 cm.", "Não: é uma família; a medida do produto está na ficha.", "Sim: significa 2,5 m."], answer: 1, why: "O nome da linha não substitui dimensões de um código e do vão da obra." },
@@ -95,6 +114,7 @@ export const learningByBrand = {
     materials: ["Elite, SUPER 25 e L25 apresentam soluções de alumínio; o arquivo Smart Solutions trata de PVC. Perfil, reforço, vidro e ferragens dependem do produto.", "Não declare que uma linha inteira isola ruído, resiste à chuva ou inclui um vidro específico: procure a ficha da peça."],
     measures: "Anote produto e vão em campos separados, largura × altura, número de folhas, cor, vidro, lado e ferragens. No PDF, localize o código/descrição e a unidade antes de transcrever medidas; peça confirmação de fabricação e instalação.",
     quality: ["Compare acabamento de perfil, junções, trilho/fecho, vedação e vidro do código selecionado.", "No PVC, confira composição do perfil e ferragens na ficha; no catálogo 2018, valide se o modelo ainda existe e qual é a versão vigente."],
+    questions: ["Este PDF trata de alumínio, PVC ou uma edição histórica?", "As dimensões indicadas são da peça ou do vão da obra?", "O código, o vidro e a disponibilidade continuam vigentes?"],
     scenario: "O cliente pede 'uma Brimak de correr'. Qual PDF você abre primeiro?",
     reasoning: "Pergunte se é porta ou janela, ambiente, material, largura/altura, passagem desejada e quantidade de folhas. Com isso, escolha a linha e então confira o código no PDF correspondente.",
     quiz: { prompt: "O catálogo geral de 2018 basta para garantir disponibilidade hoje?", options: ["Sim, se há foto.", "Não; ele é referência histórica e exige confirmação atual.", "Sim, se a medida parecer padrão."], answer: 1, why: "Um PDF antigo ensina modelos e terminologia, mas não confirma estoque, composição ou fabricação atual." },
@@ -106,6 +126,7 @@ export const learningByBrand = {
     materials: ["Leia na ficha se o produto é alumínio ou aço, qual linha/perfil e qual acabamento. 'Primer' indica uma base cujo acabamento final precisa ser confirmado para a aplicação.", "Vidro, grade, puxador e fechadura não devem ser deduzidos pela imagem de outra variante."],
     measures: "Anote largura × altura do vão e do produto, parede/requadro, cor, número de folhas, vidro, lado e abertura. Compare somente peças de função e composição equivalentes.",
     quality: ["Confira acabamento/proteção do material para o ambiente, junções, trilhos, ferragens e vedação descritos.", "Peça documentação do modelo para desempenho de ar, água e vento quando isso fizer parte da decisão; não use a aparência como ensaio."],
+    questions: ["A variante é de alumínio ou aço?", "O acabamento é final ou a peça vem com primer para pintar?", "O que a ficha realmente informa sobre vidro, ferragens e instalação?"],
     scenario: "Duas portas têm a mesma foto, mas uma é alumínio Premium e a outra é aço com primer. O preço menor decide sozinho?",
     reasoning: "Não. Registre ambiente, material, acabamento final, composição, vidro, ferragens, medida, manutenção e instalação. Compare o custo total e a adequação antes de recomendar.",
     quiz: { prompt: "Para comparar uma porta de aço com uma de alumínio, o que vem primeiro?", options: ["Escolher só pela cor.", "Conferir função, ambiente, composição e ficha de cada modelo.", "Assumir que o nome da linha indica desempenho."], answer: 1, why: "Qualidade depende do produto e do uso. Materiais e linhas não são notas universais." },
@@ -117,6 +138,7 @@ export const learningByBrand = {
     materials: ["Identifique linha e material antes de falar em acabamento, vidro ou preço; Standard e Nobre, por exemplo, não são a mesma especificação.", "Pergunte se vidro, grade, fecho, puxador e trilho vêm no produto de código escolhido."],
     measures: "Em uma ficha de porta Standard, a notação 840 × 2150 × 120 é largura × altura × requadro em milímetros; compare com as medidas do vão e parede, mas não conclua a folga de instalação sem a instrução do fabricante.",
     quality: ["Veja pintura/revestimento, junções, ferragens, encaixe do vidro e estado da peça entregue.", "Confira ficha e instruções para vedação e desempenho, além de garantia aplicável ao código."],
+    questions: ["Qual código corresponde a esta medida e a este lado?", "A ordem da tabela é largura, altura e requadro em milímetros?", "Qual material, acabamento e itens inclusos a variante descreve?"],
     scenario: "O cliente escolheu a porta Standard 840 × 2150 × 120, mas ainda não disse o lado. A cotação está pronta?",
     reasoning: "Não. A ficha tem códigos diferentes para direita e esquerda; confirme o lado pela convenção do fabricante, meça o vão acabado e confira a parede de 120 mm antes de fechar.",
     quiz: { prompt: "No exemplo 840 × 2150 × 120, o terceiro número representa o quê?", options: ["O preço.", "O requadro da variante mostrada.", "O vão livre."], answer: 1, why: "A ficha da porta Standard identifica largura, altura e requadro. Outras fichas podem usar outra ordem e unidade." },
@@ -128,6 +150,7 @@ export const learningByBrand = {
     materials: ["Confirme alumínio ou aço, tipo e espessura do vidro, cor, folhas móveis/fixas e ferragens na ficha exata.", "Borracha de vedação, pintura, persiana e vidro temperado não são características de todos os modelos."],
     measures: "Nas fichas Ullian, A × L × R indica altura, largura e requadro, normalmente em centímetros; VL é o vão livre de passagem. Compare esses campos com o vão acabado e confirme lado e folgas na instrução da peça.",
     quality: ["Inspecione pintura, vedação, fecho/trilho e integridade do vidro previstos para o modelo.", "Use o manual e a garantia da peça, sem prometer isolamento ou resistência universal para a marca."],
+    questions: ["A × L × R está em qual unidade nesta ficha?", "Qual é o VL, isto é, a passagem útil?", "O vidro e as ferragens são desta variante ou de outra foto?"],
     scenario: "Uma porta tem largura externa de 90 cm e vão livre de 77 cm. O cliente terá 90 cm de passagem?",
     reasoning: "Não. A largura externa e o vão livre são grandezas diferentes. Mostre ambos os campos da ficha e confirme se a passagem atende ao uso antes de recomendar.",
     quiz: { prompt: "O que significa VL na tabela do exemplo Lucasa?", options: ["Vão livre de passagem.", "Volume de vidro.", "Valor da linha."], answer: 0, why: "VL é a passagem efetiva informada na ficha; não é largura externa da esquadria." },
@@ -139,6 +162,7 @@ export const learningByBrand = {
     materials: ["Leia material, acabamento, folhas móveis/fixas, vidro, fecho e trilho na ficha da variante.", "Aço com pintura, aço preparado para acabamento e alumínio pedem cuidados e condições diferentes; consulte manutenção e aplicação."],
     measures: "Nas fichas Ullian, separe A × L × R (altura, largura e requadro) de VL (vão livre). Anote lado de abertura e compare com vão acabado, parede e passagem necessária; não calcule folga por conta própria.",
     quality: ["Compare proteção e pintura, encaixes, vedação, trilho e ferragens do código escolhido.", "Peça ficha, manual e garantia daquela peça para qualquer alegação de desempenho térmico, acústico ou de estanqueidade."],
+    questions: ["O código é de aço ou alumínio e qual acabamento traz?", "Qual o VL e quantas folhas realmente se movem?", "Há informação escrita sobre vedação, instalação e manutenção?"],
     scenario: "Uma porta de correr mede 120 cm de largura externa, mas a ficha indica passagem livre de 49 cm. Qual medida importa para levar um móvel?",
     reasoning: "A passagem livre. Use também a dimensão externa para verificar o vão e a instalação; confirme a variante e o lado no código da ficha.",
     quiz: { prompt: "A largura externa de uma porta de correr é igual à passagem livre?", options: ["Sempre.", "Não necessariamente; consulte o campo VL do código.", "Só quando o vidro é liso."], answer: 1, why: "Folhas fixas e móveis alteram a área de passagem. O campo VL responde a essa pergunta." },
@@ -149,6 +173,7 @@ export const learningByBrand = {
 export const brimakDocumentLessons = [
   {
     title: "Linha Elite",
+    focus: "Pivotantes, janelas integradas, portas de correr e basculantes",
     href: "/catalogos/brimak-linha-elite.pdf",
     pages: "p. 2–21",
     learn: "Separe pivotantes (p. 3–8), janelas de correr (p. 9–12), portas de correr (p. 13–18) e basculantes (p. 19–21). Uma janela integrada pode trazer persiana; uma porta pivotante usa pivôs e puxador. Confira a peça específica.",
@@ -159,6 +184,7 @@ export const brimakDocumentLessons = [
   },
   {
     title: "Linha SUPER 25",
+    focus: "Portas de alumínio de giro, pivotantes e de correr",
     href: "/catalogos/brimak-linha-super-25.pdf",
     pages: "p. 2–25",
     learn: "Compare pivotantes (p. 3–7), portas de giro com puxador (p. 8–13), lambril (p. 14–17), clássicas (p. 18–21) e portas de correr/balcão (p. 22–25). A medida do perfil não é a largura da porta.",
@@ -169,6 +195,7 @@ export const brimakDocumentLessons = [
   },
   {
     title: "Linha L25",
+    focus: "Portas camarão, suspensas e clássicas",
     href: "/catalogos/brimak-linha-l25.pdf",
     pages: "p. 2–11",
     learn: "A p. 2 diferencia porta camarão e suspensa para espaços internos, sem o giro de uma folha convencional, das portas clássicas de entrada. Veja variações com lambril, veneziana ou vidro nas p. 4–11.",
@@ -179,6 +206,7 @@ export const brimakDocumentLessons = [
   },
   {
     title: "Smart Solutions PVC",
+    focus: "Portas e janelas com perfis de PVC",
     href: "/catalogos/brimak-portas-janelas-pvc.pdf",
     pages: "p. 2–7",
     learn: "A p. 2 apresenta perfil multicâmaras de PVC, junções soldadas a 45°, reforço interno de aço zincado e guarnições. As p. 3–7 separam pivotantes, portas, correr, janelas e maxim-ar.",
@@ -189,6 +217,7 @@ export const brimakDocumentLessons = [
   },
   {
     title: "Catálogo geral 2018",
+    focus: "Vocabulário e acabamentos; confirme a linha atual",
     href: "/catalogos/brimak-catalogo-2018.pdf",
     pages: "p. 2–19 · referência histórica",
     learn: "Use as páginas de portas (2–10), janelas/venezianas (11–15), acabamentos/vidros (18) e sentido de abertura (19) para aprender vocabulário. A edição é de 2018 e pode não representar a linha atual.",
