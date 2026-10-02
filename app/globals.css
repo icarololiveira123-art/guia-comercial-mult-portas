@@ -1486,10 +1486,10 @@ textarea:focus-visible, summary:focus-visible, [tabindex]:focus-visible,
 }
 .auth-card::before { content: ""; position: absolute; z-index: -1; inset: 0 50% 0 0; background: radial-gradient(circle at 80% 75%,rgba(24,184,242,.23),transparent 39%),repeating-linear-gradient(135deg,transparent 0 37px,rgba(255,255,255,.027) 38px 40px),linear-gradient(145deg,#071a33,#123451 70%,#10537a); }
 .auth-card::after { content: ""; position: absolute; z-index: -1; width: 320px; height: 320px; left: -170px; bottom: -194px; border: 1px solid rgba(126,221,252,.24); border-radius: 50%; box-shadow: 0 0 0 35px rgba(126,221,252,.034),0 0 0 83px rgba(126,221,252,.025); }
-.auth-brand { grid-area: brand; gap: 13px; }
+.auth-card > .auth-brand { grid-area: brand; gap: 13px; }
 .auth-mark, .brand-mark { border: 1px solid rgba(128,217,249,.48); border-radius: 12px; color: #fff; background: linear-gradient(145deg,#157bef,#05a3c4); box-shadow: 0 7px 18px rgba(0,89,181,.19); }
-.auth-brand strong { color: #fff; font-size: 14px; letter-spacing: .14em; }
-.auth-brand span { color: #b3cde0; font-size: 11px; }
+.auth-card .auth-brand strong { color: #fff; font-size: 14px; letter-spacing: .14em; }
+.auth-card .auth-brand span { color: #b3cde0; font-size: 11px; }
 .auth-heading { grid-area: heading; align-self: center; margin: 0; padding: 30px 0 72px; }
 .auth-heading .section-kicker { color: #81e2fc; font-size: 11px; }
 .auth-heading h1 { max-width: 390px; margin-top: 22px; color: #fff; font-size: clamp(42px,5vw,64px); letter-spacing: -.065em; line-height: 1.02; }
@@ -1770,6 +1770,8 @@ textarea:focus-visible, summary:focus-visible, [tabindex]:focus-visible,
 .account-detail { margin-top: 29px; }
 .account-detail-head h2 { color: #173c59; }
 .account-editor { border-radius: 15px; }
+.account-editor-actions .button.ghost { border-color: #b7d2e7; color: #245b84; background: #f5faff; }
+.account-editor-actions .button.ghost:hover { border-color: #4b9cdb; color: #0e5a9e; background: #eaf5ff; }
 .account-state-grid pre { font-size: 11px; }
 
 /* New beginner path and a fillable study sheet. */
