@@ -59,7 +59,7 @@ function adminRecord() {
     || !value.password || typeof value.password !== "object"
     || typeof value.password.salt !== "string" || typeof value.password.hash !== "string"
     || !Number.isSafeInteger(value.password.iterations)) {
-    throw new Error("O cadastro do administrador está danificado. Nada foi alterado.");
+    throw new Error("A configuração deste acesso está danificada. Nada foi alterado.");
   }
   return value;
 }
@@ -234,16 +234,16 @@ export async function localApiFetch(path, init = {}) {
     if (route === "/api/auth/admin/setup" && method === "POST") {
       // This setup concerns only this browser. There is no global administrator
       // on a public static host and no password shipped with the JavaScript.
-      if (adminRecord() !== null) return json({ error: "O administrador deste navegador já foi configurado." }, 409);
-      const parsed = readBody(init, 8_000, "Não foi possível ler a configuração do administrador.");
+      if (adminRecord() !== null) return json({ error: "Este acesso já foi configurado neste navegador." }, 409);
+      const parsed = readBody(init, 8_000, "Não foi possível ler a configuração deste acesso.");
       if (parsed.error) return parsed.error;
       const { password } = parsed.value;
-      if (typeof password !== "string" || password.length < 8 || password.length > 120) {
-        return json({ error: "A senha deve ter de 8 a 120 caracteres." }, 400);
+      if (typeof password !== "string" || password.length < 5 || password.length > 120) {
+        return json({ error: "A senha deve ter de 5 a 120 caracteres." }, 400);
       }
       const record = { password: await passwordRecord(password), sessionVersion: crypto.randomUUID(), createdAt: new Date().toISOString() };
       abortIfRequested(signal);
-      if (adminRecord() !== null) return json({ error: "O administrador deste navegador já foi configurado." }, 409);
+      if (adminRecord() !== null) return json({ error: "Este acesso já foi configurado neste navegador." }, 409);
       getStorage("localStorage").setItem(ADMIN_KEY, JSON.stringify(record));
       getStorage("sessionStorage").removeItem(SESSION_KEY);
       getStorage("sessionStorage").setItem(ADMIN_SESSION_KEY, JSON.stringify({ version: record.sessionVersion }));
@@ -251,7 +251,7 @@ export async function localApiFetch(path, init = {}) {
     }
 
     if (route === "/api/admin/users" || route.startsWith("/api/admin/users/")) {
-      if (!currentAdmin()) return json({ error: "Entre como administrador para gerenciar as contas deste navegador." }, 401);
+      if (!currentAdmin()) return json({ error: "Acesso não autorizado." }, 401);
       const userMatch = /^\/api\/admin\/users\/([1-9]\d*)$/.exec(route);
       if (route !== "/api/admin/users" && !userMatch) return json({ error: "Conta não encontrada." }, 404);
       const userId = userMatch ? Number(userMatch[1]) : null;

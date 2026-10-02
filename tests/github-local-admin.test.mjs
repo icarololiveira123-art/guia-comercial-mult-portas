@@ -41,7 +41,7 @@ test("admin setup and CRUD preserve existing users and isolate local account dat
     local.setItem(`mult-portas-guia-learning-v1-user-${aliceId}-brand-brimak`, "progress-a");
     assert.deepEqual((await request("/api/auth/admin/status")).data, { configured: false });
     assert.equal((await request("/api/admin/users")).status, 401);
-    assert.equal((await request("/api/auth/admin/setup", "POST", { password: "short" })).status, 400);
+    assert.equal((await request("/api/auth/admin/setup", "POST", { password: "abc" })).status, 400);
 
     globalThis.sessionStorage = adminTab;
     assert.equal((await request("/api/auth/admin/setup", "POST", { password: "unique-admin-password-1" })).status, 201);
@@ -105,6 +105,32 @@ test("admin setup and CRUD preserve existing users and isolate local account dat
     globalThis.sessionStorage = employeeTab;
     assert.deepEqual((await request("/api/auth/me")).data.user.id, aliceId);
     assert.deepEqual((await request("/api/data")).data.state, state);
+  } finally {
+    if (previousLocal === undefined) delete globalThis.localStorage;
+    else globalThis.localStorage = previousLocal;
+    if (previousSession === undefined) delete globalThis.sessionStorage;
+    else globalThis.sessionStorage = previousSession;
+  }
+});
+
+test("a user-chosen five-character local secret stays hashed and survives logout", async () => {
+  const previousLocal = globalThis.localStorage;
+  const previousSession = globalThis.sessionStorage;
+  const local = new Storage();
+  globalThis.localStorage = local;
+  globalThis.sessionStorage = new Storage();
+  // This is a disposable fixture, never a deployed credential.
+  const secret = crypto.randomUUID().replaceAll("-", "").slice(0, 5);
+  try {
+    assert.equal((await request("/api/auth/admin/setup", "POST", { password: secret })).status, 201);
+    const stored = JSON.parse(local.getItem("mult-portas-pages-admin-v1"));
+    assert.equal(typeof stored.password.hash, "string");
+    assert.notEqual(stored.password.hash, secret);
+    assert.notEqual(stored.password.salt, secret);
+    assert.equal((await request("/api/auth/logout", "POST")).status, 200);
+    assert.equal((await request("/api/auth/login", "POST", { username: "admin", password: secret })).status, 200);
+    assert.equal((await request("/api/auth/admin/setup", "POST", { password: "replacement-password" })).status, 409);
+    assert.deepEqual(JSON.parse(local.getItem("mult-portas-pages-admin-v1")), stored);
   } finally {
     if (previousLocal === undefined) delete globalThis.localStorage;
     else globalThis.localStorage = previousLocal;

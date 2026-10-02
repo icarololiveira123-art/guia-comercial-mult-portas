@@ -8,6 +8,7 @@ import { CatalogWorkspace } from "./catalog-workspace";
 import { AccountCenter } from "./account-center";
 import { catalogItems as catalogItemData } from "./lib/catalog-items.mjs";
 import { localApiFetch } from "./lib/github-local-api.mjs";
+import { readAccessSession } from "./lib/session-check.mjs";
 import { guidedCustomerReply } from "./api/coach/customer-policy.mjs";
 import {
   availableDalcomadKitValues,
@@ -70,7 +71,7 @@ type EmployeeUser = {
   branch: "Araraquara" | "São Carlos";
 };
 
-type AuthMode = "login" | "register" | "admin-setup";
+type AuthMode = "login" | "register" | "setup";
 
 type AuthFormState = {
   displayName: string;
@@ -1545,7 +1546,7 @@ export default function Home() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
   const [authMode, setAuthMode] = useState<AuthMode>("login");
-  const [adminSetupAvailable, setAdminSetupAvailable] = useState(false);
+  const [setupAvailable, setSetupAvailable] = useState(false);
   const [authForm, setAuthForm] = useState<AuthFormState>({
     displayName: "",
     username: "",
@@ -1861,18 +1862,22 @@ export default function Home() {
 
   useEffect(() => {
     let cancelled = false;
-    apiFetch("/api/auth/me", { cache: "no-store" })
-      .then(async (response) => response.ok ? await readResponseJson<{ user?: EmployeeUser | null; admin?: boolean }>(response) : { user: null, admin: false })
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 12_000);
+    readAccessSession(apiFetch, controller.signal)
       .then((data) => {
         if (cancelled) return;
         setIsAdmin(data.admin === true);
         setAuthUser(data.user && typeof data.user.id === "number" ? data.user : null);
         setAuthLoading(false);
       })
-      .catch(() => {
-        if (!cancelled) setAuthLoading(false);
-      });
-    return () => { cancelled = true; };
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        setAuthError(error instanceof Error && error.name !== "AbortError" ? error.message : "A verificação do acesso demorou demais. Tente entrar novamente.");
+        setAuthLoading(false);
+      })
+      .finally(() => window.clearTimeout(timeout));
+    return () => { cancelled = true; window.clearTimeout(timeout); controller.abort(); };
   }, []);
 
   useEffect(() => {
@@ -1880,8 +1885,8 @@ export default function Home() {
     let cancelled = false;
     apiFetch("/api/auth/admin/status", { cache: "no-store" })
       .then(async (response) => response.ok ? await readResponseJson<{ configured?: boolean }>(response) : { configured: true })
-      .then((data) => { if (!cancelled) setAdminSetupAvailable(data.configured === false); })
-      .catch(() => { if (!cancelled) setAdminSetupAvailable(false); });
+      .then((data) => { if (!cancelled) setSetupAvailable(data.configured === false); })
+      .catch(() => { if (!cancelled) setSetupAvailable(false); });
     return () => { cancelled = true; };
   }, []);
 
@@ -2537,17 +2542,15 @@ export default function Home() {
   async function handleAuthSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setAuthError("");
-    if ((authMode === "register" || authMode === "admin-setup") && authForm.password !== authForm.confirmPassword) {
+    if ((authMode === "register" || authMode === "setup") && authForm.password !== authForm.confirmPassword) {
       setAuthError("As senhas não coincidem.");
       return;
     }
 
     setAuthBusy(true);
     try {
-      const endpoint = authMode === "admin-setup" ? "/api/auth/admin/setup" : authMode === "register" ? "/api/auth/register" : "/api/auth/login";
-      const body = authMode === "admin-setup"
-        ? { password: authForm.password }
-        : authMode === "register"
+      const endpoint = authMode === "setup" ? "/api/auth/admin/setup" : authMode === "register" ? "/api/auth/register" : "/api/auth/login";
+      const body = authMode === "setup" ? { password: authForm.password } : authMode === "register"
         ? { displayName: authForm.displayName, username: authForm.username, branch: authForm.branch, password: authForm.password }
         : { username: authForm.username, password: authForm.password };
       const response = await apiFetch(endpoint, {
@@ -2566,7 +2569,7 @@ export default function Home() {
       setDataLoadError("");
       revisionRef.current = null;
       setIsAdmin(data.admin === true);
-      if (authMode === "admin-setup") setAdminSetupAvailable(false);
+      if (authMode === "setup") setSetupAvailable(false);
       setAuthUser(data.user ?? null);
       setAuthForm({ displayName: "", username: "", branch: "Araraquara", password: "", confirmPassword: "" });
       setSection("overview");
@@ -3220,7 +3223,7 @@ export default function Home() {
   }
 
   if (!authUser && !isAdmin) {
-    return <AuthScreen mode={authMode} setMode={(mode) => { setAuthMode(mode); setAuthError(""); }} form={authForm} setForm={setAuthForm} error={authError} busy={authBusy} adminSetupAvailable={adminSetupAvailable} onSubmit={handleAuthSubmit} />;
+    return <AuthScreen mode={authMode} setMode={(mode) => { setAuthMode(mode); setAuthError(""); }} form={authForm} setForm={setAuthForm} error={authError} busy={authBusy} setupAvailable={setupAvailable} onSubmit={handleAuthSubmit} />;
   }
 
   if (isAdmin) return <AccountCenter onLogout={handleLogout} externalError={authError} isGithubPages={IS_GITHUB_PAGES} request={apiFetch} />;

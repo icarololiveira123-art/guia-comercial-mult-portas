@@ -2,7 +2,7 @@
 
 import type { Dispatch, FormEvent, SetStateAction } from "react";
 
-type AuthMode = "login" | "register" | "admin-setup";
+type AuthMode = "login" | "register" | "setup";
 type Branch = "Araraquara" | "São Carlos";
 
 type AuthFormState = {
@@ -20,7 +20,7 @@ type AuthScreenProps = {
   setForm: Dispatch<SetStateAction<AuthFormState>>;
   error: string;
   busy: boolean;
-  adminSetupAvailable: boolean;
+  setupAvailable: boolean;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 };
 
@@ -28,9 +28,9 @@ type AuthScreenProps = {
  * Authentication UI is intentionally kept outside the guide workspace.
  * Guide content can evolve without changing this access boundary.
  */
-export function AuthScreen({ mode, setMode, form, setForm, error, busy, adminSetupAvailable, onSubmit }: AuthScreenProps) {
+export function AuthScreen({ mode, setMode, form, setForm, error, busy, setupAvailable, onSubmit }: AuthScreenProps) {
   const isRegister = mode === "register";
-  const isAdminSetup = mode === "admin-setup";
+  const isSetup = mode === "setup";
   const isGithubPages = (import.meta as ImportMeta & { env?: Record<string, string> }).env?.VITE_GITHUB_PAGES === "true";
   const update = (key: keyof AuthFormState, value: string) => setForm((current) => ({ ...current, [key]: value }));
 
@@ -67,11 +67,9 @@ export function AuthScreen({ mode, setMode, form, setForm, error, busy, adminSet
           </div>
         </div>
         <div className="auth-heading access-heading">
-          <span className="section-kicker">{isAdminSetup ? "PRIMEIRO ACESSO DO ADMIN" : "ACESSO DA EQUIPE"}</span>
-          <h1 id="auth-title">{isAdminSetup ? "Configure a gestão." : isRegister ? "Crie seu acesso." : "Entre no seu espaço."}</h1>
-          <p>{isAdminSetup
-            ? "Crie a senha do administrador deste navegador. Ela permite gerenciar somente as contas salvas neste aparelho. Guarde a senha: não há recuperação automática."
-            : isRegister ? "Cada funcionário terá seus próprios registros, pendências e progresso." : "Use seu usuário e senha para abrir os dados da sua conta."}</p>
+          <span className="section-kicker">{isSetup ? "PRIMEIRO ACESSO" : "ACESSO DA EQUIPE"}</span>
+          <h1 id="auth-title">{isSetup ? "Defina seu acesso." : isRegister ? "Crie seu acesso." : "Entre no seu espaço."}</h1>
+          <p>{isSetup ? "Escolha e confirme a senha deste acesso. A configuração ficará salva neste navegador." : isRegister ? "Cada funcionário terá seus próprios registros, pendências e progresso." : "Use seu usuário e senha para abrir os dados da sua conta."}</p>
         </div>
 
         <div className="auth-tabs" role="group" aria-label="Acesso e cadastro">
@@ -82,9 +80,7 @@ export function AuthScreen({ mode, setMode, form, setForm, error, busy, adminSet
             Cadastro
           </button>
         </div>
-        {isGithubPages && adminSetupAvailable && <button type="button" className={`access-admin-link${isAdminSetup ? " active" : ""}`} aria-pressed={isAdminSetup} onClick={() => setMode("admin-setup")}>
-          Configurar administrador local <span aria-hidden="true">→</span>
-        </button>}
+        {isGithubPages && setupAvailable && mode !== "register" && form.username.trim().toLocaleLowerCase("pt-BR") === "admin" && <button type="button" className={"access-admin-link" + (isSetup ? " active" : "")} aria-pressed={isSetup} onClick={() => setMode("setup")}>Configurar este acesso <span aria-hidden="true">→</span></button>}
 
         <form className="auth-form" onSubmit={onSubmit} aria-describedby={error ? "auth-error" : undefined}>
           {isRegister && (
@@ -93,12 +89,10 @@ export function AuthScreen({ mode, setMode, form, setForm, error, busy, adminSet
               <input value={form.displayName} onChange={(event) => update("displayName", event.target.value)} placeholder="Nome do funcionário" autoComplete="name" minLength={2} maxLength={80} required />
             </label>
           )}
-          {isAdminSetup
-            ? <p className="auth-admin-username">Usuário do administrador: <strong>admin</strong></p>
-            : <label>
-                <span>Usuário</span>
-                <input value={form.username} onChange={(event) => update("username", event.target.value)} placeholder="ex.: nome.sobrenome ou admin" autoComplete="username" autoCapitalize="none" spellCheck={false} minLength={3} maxLength={40} pattern="[a-zA-Z0-9._-]+" required />
-              </label>}
+          <label>
+            <span>Usuário</span>
+            <input value={form.username} onChange={(event) => update("username", event.target.value)} placeholder="ex.: nome.sobrenome" autoComplete="username" autoCapitalize="none" spellCheck={false} minLength={3} maxLength={40} pattern="[a-zA-Z0-9._-]+" disabled={isSetup} required />
+          </label>
           {isRegister && (
             <label>
               <span>Filial</span>
@@ -110,17 +104,17 @@ export function AuthScreen({ mode, setMode, form, setForm, error, busy, adminSet
           )}
           <label>
             <span>Senha</span>
-            <input type="password" value={form.password} onChange={(event) => update("password", event.target.value)} placeholder={isRegister || isAdminSetup ? "Mínimo de 8 caracteres" : "Digite sua senha"} autoComplete={isRegister || isAdminSetup ? "new-password" : "current-password"} minLength={isRegister || isAdminSetup ? 8 : undefined} maxLength={120} required />
+            <input type="password" value={form.password} onChange={(event) => update("password", event.target.value)} placeholder={isRegister ? "Mínimo de 8 caracteres" : isSetup ? "Mínimo de 5 caracteres" : "Digite sua senha"} autoComplete={isRegister || isSetup ? "new-password" : "current-password"} minLength={isRegister ? 8 : isSetup ? 5 : undefined} maxLength={120} required />
           </label>
-          {(isRegister || isAdminSetup) && (
+          {(isRegister || isSetup) && (
             <label>
               <span>Confirmar senha</span>
-              <input type="password" value={form.confirmPassword} onChange={(event) => update("confirmPassword", event.target.value)} placeholder="Repita a senha" autoComplete="new-password" minLength={8} maxLength={120} required />
+              <input type="password" value={form.confirmPassword} onChange={(event) => update("confirmPassword", event.target.value)} placeholder="Repita a senha" autoComplete="new-password" minLength={isSetup ? 5 : 8} maxLength={120} required />
             </label>
           )}
           {error && <div className="auth-error" id="auth-error" role="alert">{error}</div>}
           <button className="button primary auth-submit" type="submit" disabled={busy}>
-            {busy ? "Aguarde…" : isAdminSetup ? "Criar administrador local" : isRegister ? "Criar cadastro" : "Entrar no guia"}
+            {busy ? "Aguarde…" : isSetup ? "Salvar este acesso" : isRegister ? "Criar cadastro" : "Entrar no guia"}
             {!busy && <span>→</span>}
           </button>
         </form>

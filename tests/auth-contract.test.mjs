@@ -1,5 +1,27 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readAccessSession } from "../app/lib/session-check.mjs";
+
+test("session checks preserve valid accounts and recognize an expired session", async () => {
+  const user = { id: 27, username: "funcionario", displayName: "Funcionário Exemplo", branch: "Araraquara" };
+  const controller = new AbortController();
+  const loaded = await readAccessSession(async (path, init) => {
+    assert.equal(path, "/api/auth/me");
+    assert.equal(init.cache, "no-store");
+    assert.equal(init.signal, controller.signal);
+    return Response.json({ user, admin: false });
+  }, controller.signal);
+  assert.deepEqual(loaded, { user, admin: false });
+  assert.deepEqual(await readAccessSession(async () => Response.json({ user: null, admin: false })), { user: null, admin: false });
+});
+
+test("unavailable or malformed session responses report a failure instead of hiding it", async () => {
+  await assert.rejects(readAccessSession(async () => Response.json({ error: "Armazenamento indisponível." }, { status: 503 })), { message: "Armazenamento indisponível." });
+  for (const response of [new Response("<html>falha</html>"), Response.json(null), Response.json([]), Response.json({ user: { id: -1 }, admin: false })]) {
+    await assert.rejects(readAccessSession(async () => response), /Não foi possível verificar o acesso/);
+  }
+  await assert.rejects(readAccessSession(async () => { throw new DOMException("cancelled", "AbortError"); }), { name: "AbortError" });
+});
 
 async function loadWorker() {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
@@ -210,6 +232,7 @@ test("employee authentication UI stays separate from the guide workspace", async
   assert.doesNotMatch(pageSource, /function AuthScreen\(/);
   assert.match(pageSource, /if \(!authUser && !isAdmin\) \{\s*return <AuthScreen/);
   assert.match(authSource, /export function AuthScreen/);
+  assert.doesNotMatch(authSource, /Configurar administrador|Usuário do administrador|PRIMEIRO ACESSO DO ADMIN|Configure a gestão|nome\.sobrenome ou admin/i);
   assert.match(authSource, /<main className="access-page">/);
   assert.match(authSource, /<form className="auth-form" onSubmit=\{onSubmit\}/);
 });
