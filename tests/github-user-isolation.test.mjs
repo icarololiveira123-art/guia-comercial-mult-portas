@@ -35,7 +35,7 @@ test("local accounts keep work isolated across tabs, logouts, reloads and profil
   try {
     const alice = await request("/api/auth/register", "POST", registration("alice", "alice-password-123"));
     assert.equal(alice.status, 201);
-    const aliceState = { sales: ["step-1"], followups: [{ client: "Alice client" }], training: { rounds: 2 } };
+    const aliceState = { sales: ["step-1"], followups: [{ id: "alice-quote", client: "Alice client", next: "Return", amountCents: 125050 }], training: { rounds: 2 } };
     const aliceSaved = await request("/api/data", "PUT", { state: aliceState, baseRevision: null });
     assert.equal(aliceSaved.status, 200);
 
@@ -46,7 +46,7 @@ test("local accounts keep work isolated across tabs, logouts, reloads and profil
     assert.equal(bob.status, 201);
     assert.notEqual(bob.data.user.id, alice.data.user.id);
     assert.deepEqual((await request("/api/data")).data, { state: null, revision: null });
-    const bobState = { sales: ["step-3"], followups: [{ client: "Bob client" }], training: { rounds: 7 } };
+    const bobState = { sales: ["step-3"], followups: [{ id: "bob-quote", client: "Bob client", next: "Return", amountCents: 98765 }], training: { rounds: 7 } };
     assert.equal((await request("/api/data", "PUT", { state: bobState, baseRevision: null })).status, 200);
 
     // Closing and reopening a tab keeps the same account's work in localStorage.
@@ -72,6 +72,18 @@ test("local accounts keep work isolated across tabs, logouts, reloads and profil
 
     globalThis.sessionStorage = bobTab;
     assert.equal((await request("/api/auth/me")).data.user.id, bob.data.user.id);
+    assert.deepEqual((await request("/api/data")).data.state, bobState);
+
+    globalThis.sessionStorage = aliceTab;
+    let current = await request("/api/data");
+    const editedState = { ...aliceState, followups: [{ ...aliceState.followups[0], amountCents: 234567 }] };
+    assert.equal((await request("/api/data", "PUT", { state: editedState, baseRevision: current.data.revision })).status, 200);
+    current = await request("/api/data");
+    assert.deepEqual(current.data.state, editedState);
+    const clearedState = { ...editedState, followups: [{ ...editedState.followups[0], amountCents: null }] };
+    assert.equal((await request("/api/data", "PUT", { state: clearedState, baseRevision: current.data.revision })).status, 200);
+    assert.deepEqual((await request("/api/data")).data.state, clearedState);
+    globalThis.sessionStorage = bobTab;
     assert.deepEqual((await request("/api/data")).data.state, bobState);
   } finally {
     if (previousLocal === undefined) delete globalThis.localStorage;

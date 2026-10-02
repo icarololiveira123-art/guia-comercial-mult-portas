@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { GUIDE_STATE_VERSION, normalizeEmployeeState, summarizeEmployeeState } from "../app/api/data/state-contract.mjs";
+import { MAX_QUOTE_AMOUNT_CENTS, formatQuoteAmount, normalizeQuoteAmountCents, parseQuoteAmount, quoteAmountInput } from "../app/lib/quote-amount.mjs";
 
 test("a new employee state is complete, versioned and fully zeroed", () => {
   const state = normalizeEmployeeState(null);
@@ -49,9 +50,52 @@ test("employee state is bounded and ignores unknown or unsafe fields", () => {
     client: "Cliente",
     status: "Aguardando retorno",
     next: "Retornar",
+    amountCents: null,
     priority: "Média",
     done: false,
   });
+});
+
+test("quote values accept Brazilian currency and preserve exact cents", () => {
+  const examples = [
+    ["", null], ["  ", null], ["0", 0], ["0,00", 0], ["0,01", 1], ["0.29", 29],
+    ["1250", 125000], ["1250,5", 125050], ["1.250,50", 125050], ["R$ 1.250,50", 125050],
+    ["  R$\u00a099.999,99  ", 9999999], ["1.250", 125000], ["1250.50", 125050],
+    ["100.000.000,00", MAX_QUOTE_AMOUNT_CENTS],
+  ];
+  for (const [input, amountCents] of examples) {
+    assert.deepEqual(parseQuoteAmount(input), { valid: true, amountCents }, input);
+  }
+  assert.equal(formatQuoteAmount(125050), "R$ 1.250,50");
+  assert.equal(formatQuoteAmount(0), "R$ 0,00");
+  assert.equal(formatQuoteAmount(null), "Não informado");
+  assert.equal(quoteAmountInput(125050), "1250,50");
+  for (const amount of [null, 0, 1, 29, 125050, 9999999, MAX_QUOTE_AMOUNT_CENTS]) {
+    assert.deepEqual(parseQuoteAmount(quoteAmountInput(amount)), { valid: true, amountCents: amount });
+  }
+});
+
+test("quote values reject malformed, negative, over-limit and fractional-cent inputs", () => {
+  for (const input of [null, 10, "R$", "-1", "-0", "+20", "1e3", "Infinity", "1,234", "12.34,56", "1,250.50", "1 2", "10 reais", "100.000.000,01", "1,", "9".repeat(41)]) {
+    assert.deepEqual(parseQuoteAmount(input), { valid: false, amountCents: null }, String(input));
+  }
+  for (const value of [undefined, null, "125050", -1, 0.5, Infinity, NaN, MAX_QUOTE_AMOUNT_CENTS + 1]) {
+    assert.equal(normalizeQuoteAmountCents(value), null);
+  }
+});
+
+test("saved quote values survive normalization and old quotes keep an unset value", () => {
+  const state = normalizeEmployeeState({ followups: [
+    { id: "priced", client: "Cliente A", next: "Retornar", amountCents: 125050 },
+    { id: "zero", client: "Cliente B", next: "Retornar", amountCents: 0 },
+    { id: "legacy", client: "Cliente C", next: "Retornar" },
+    { id: "invalid", client: "Cliente D", next: "Retornar", amountCents: 1.25 },
+  ] });
+  assert.deepEqual(state.followups.map(({ amountCents }) => amountCents), [125050, 0, null, null]);
+  assert.equal(state.followups[2].client, "Cliente C");
+  assert.deepEqual(normalizeEmployeeState(JSON.parse(JSON.stringify(state))).followups, state.followups);
+  state.followups[0].amountCents = null;
+  assert.equal(normalizeEmployeeState(state).followups[0].amountCents, null);
 });
 
 test("follow-up bounds preserve the newest entries shown first in the UI", () => {

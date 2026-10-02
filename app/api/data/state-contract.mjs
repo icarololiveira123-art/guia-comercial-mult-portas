@@ -6,6 +6,7 @@ import {
   normalizeDalcomadKitSelection,
   parseDalcomadKitPrice,
 } from "../../lib/dalcomad-kit.mjs";
+import { normalizeQuoteAmountCents } from "../../lib/quote-amount.mjs";
 
 export const GUIDE_STATE_VERSION = 4;
 
@@ -105,6 +106,7 @@ function normalizeFollowUps(value) {
     client: cleanString(item.client, 160),
     status: cleanString(item.status, 80) || "Aguardando retorno",
     next: cleanString(item.next, 240),
+    amountCents: normalizeQuoteAmountCents(item.amountCents),
     priority: ["Alta", "Média", "Baixa"].includes(item.priority) ? item.priority : "Média",
     done: item.done === true,
   })).filter((item) => item.client || item.next);

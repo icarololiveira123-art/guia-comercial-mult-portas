@@ -13,6 +13,9 @@ origin="http://127.0.0.1:${port}"
 run_dir="$(mktemp -d)"
 server_log="${run_dir}/server.log"
 server_pid=""
+access_test_secret="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(24).toString("hex"))')"
+user_test_secret="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(24).toString("hex"))')"
+updated_user_test_secret="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(24).toString("hex"))')"
 
 cleanup() {
   if [[ -n "${server_pid}" ]] && kill -0 "${server_pid}" 2>/dev/null; then
@@ -27,7 +30,7 @@ cleanup() {
 trap cleanup EXIT
 
 cd "${project_root}"
-ADMIN_PASSWORD=admin npm run dev -- --host 127.0.0.1 --port "${port}" >"${server_log}" 2>&1 &
+ADMIN_PASSWORD="${access_test_secret}" npm run dev -- --host 127.0.0.1 --port "${port}" >"${server_log}" 2>&1 &
 server_pid="$!"
 
 ready=0
@@ -88,13 +91,13 @@ assert_status() {
 
 status="${run_dir}/status"
 response="${run_dir}/response.json"
-oversized_profile="$(node -e 'process.stdout.write(JSON.stringify({displayName:"x".repeat(9000),username:"qa.limit",branch:"Araraquara",password:"Qa-Teste-2026!"}))')"
+oversized_profile="$(node -e 'process.stdout.write(JSON.stringify({displayName:"x".repeat(9000),username:"qa.limit",branch:"Araraquara",password:process.argv[1]}))' "${user_test_secret}")"
 
-request POST /api/auth/login "${cookie_a}" "${status}" "${response}" "{\"username\":\"usuario.inexistente.${suffix}\",\"password\":\"Qa-Teste-2026!\"}"
+request POST /api/auth/login "${cookie_a}" "${status}" "${response}" "{\"username\":\"usuario.inexistente.${suffix}\",\"password\":\"${user_test_secret}\"}"
 assert_status 401 "${status}" "${response}"
 node -e 'const d=require(process.argv[1]); if(d.error!=="Usuário ou senha incorretos.") process.exit(1)' "${response}"
 
-request POST /api/auth/login "${cookie_admin}" "${status}" "${response}" '{"username":"admin","password":"admin"}'
+request POST /api/auth/login "${cookie_admin}" "${status}" "${response}" "{\"username\":\"admin\",\"password\":\"${access_test_secret}\"}"
 assert_status 200 "${status}" "${response}"
 node -e 'const d=require(process.argv[1]); if(d.admin!==true) process.exit(1)' "${response}"
 request GET /api/admin/users "${cookie_admin}" "${status}" "${response}"
@@ -103,11 +106,11 @@ node -e 'const d=require(process.argv[1]); if(!Array.isArray(d.users)) process.e
 request POST /api/admin/users "${cookie_admin}" "${status}" "${response}" "${oversized_profile}"
 assert_status 413 "${status}" "${response}"
 
-request POST /api/admin/users "${cookie_admin}" "${status}" "${response}" "{\"displayName\":\"QA Administrado\",\"username\":\"${admin_user}\",\"branch\":\"Araraquara\",\"password\":\"Qa-Teste-2026!\"}"
+request POST /api/admin/users "${cookie_admin}" "${status}" "${response}" "{\"displayName\":\"QA Administrado\",\"username\":\"${admin_user}\",\"branch\":\"Araraquara\",\"password\":\"${user_test_secret}\"}"
 assert_status 201 "${status}" "${response}"
 admin_user_id="$(node -p 'const d=require(process.argv[1]); if(!Number.isInteger(d.user?.id)) process.exit(1); d.user.id' "${response}")"
 
-request PATCH "/api/admin/users/${admin_user_id}" "${cookie_admin}" "${status}" "${response}" "{\"displayName\":\"QA Perfil Editado\",\"username\":\"${admin_user}.edit\",\"branch\":\"São Carlos\",\"password\":\"Qa-Teste-2026-Nova!\"}"
+request PATCH "/api/admin/users/${admin_user_id}" "${cookie_admin}" "${status}" "${response}" "{\"displayName\":\"QA Perfil Editado\",\"username\":\"${admin_user}.edit\",\"branch\":\"São Carlos\",\"password\":\"${updated_user_test_secret}\"}"
 assert_status 200 "${status}" "${response}"
 node -e 'const d=require(process.argv[1]); if(d.user?.displayName!=="QA Perfil Editado" || d.user?.branch!=="São Carlos") process.exit(1)' "${response}"
 request GET "/api/admin/users/${admin_user_id}" "${cookie_admin}" "${status}" "${response}"
@@ -116,65 +119,65 @@ node -e 'const d=require(process.argv[1]); if(d.user?.username!==process.argv[2]
 
 request POST /api/auth/logout "${cookie_admin}" "${status}" "${response}" '{}'
 assert_status 200 "${status}" "${response}"
-request POST /api/auth/login "${cookie_a}" "${status}" "${response}" "{\"username\":\"${admin_user}.edit\",\"password\":\"Qa-Teste-2026-Nova!\"}"
+request POST /api/auth/login "${cookie_a}" "${status}" "${response}" "{\"username\":\"${admin_user}.edit\",\"password\":\"${updated_user_test_secret}\"}"
 assert_status 200 "${status}" "${response}"
 node -e 'const d=require(process.argv[1]); if(d.user?.displayName!=="QA Perfil Editado") process.exit(1)' "${response}"
 request POST /api/auth/logout "${cookie_a}" "${status}" "${response}" '{}'
 assert_status 200 "${status}" "${response}"
 
-request POST /api/auth/login "${cookie_admin}" "${status}" "${response}" '{"username":"admin","password":"admin"}'
+request POST /api/auth/login "${cookie_admin}" "${status}" "${response}" "{\"username\":\"admin\",\"password\":\"${access_test_secret}\"}"
 assert_status 200 "${status}" "${response}"
 request DELETE "/api/admin/users/${admin_user_id}" "${cookie_admin}" "${status}" "${response}" '{}'
 assert_status 200 "${status}" "${response}"
 node -e 'const d=require(process.argv[1]); if(d.ok!==true) process.exit(1)' "${response}"
-request POST /api/auth/login "${cookie_a}" "${status}" "${response}" "{\"username\":\"${admin_user}.edit\",\"password\":\"Qa-Teste-2026-Nova!\"}"
+request POST /api/auth/login "${cookie_a}" "${status}" "${response}" "{\"username\":\"${admin_user}.edit\",\"password\":\"${updated_user_test_secret}\"}"
 assert_status 401 "${status}" "${response}"
 
-request POST /api/auth/register "${cookie_a}" "${status}" "${response}" "{\"displayName\":\"QA Funcionário A\",\"username\":\"${user_a}\",\"branch\":\"Araraquara\",\"password\":\"Qa-Teste-2026!\"}"
+request POST /api/auth/register "${cookie_a}" "${status}" "${response}" "{\"displayName\":\"QA Funcionário A\",\"username\":\"${user_a}\",\"branch\":\"Araraquara\",\"password\":\"${user_test_secret}\"}"
 assert_status 201 "${status}" "${response}"
 
 request GET /api/data "${cookie_a}" "${status}" "${response}"
 assert_status 200 "${status}" "${response}"
 node -e 'const d=require(process.argv[1]); if(d.state!==null) process.exit(1)' "${response}"
 
-state_payload='{"state":{"metrics":{"leads":4,"quotes":3,"officialQuotes":2,"incompleteQuotes":1,"followups":1,"closed":1,"ticket":2500},"training":{"rounds":2,"best":8,"scenarios":["price-first"],"scoreHistory":[6,8],"skillHistory":[{"acolhimento":7,"diagnostico":6,"precisao":7,"valor":6,"proximoPasso":8}]},"followups":[{"id":"qa-1","client":"Cliente QA","next":"Retornar amanhã","priority":"Alta","done":false}]}}'
+state_payload='{"state":{"metrics":{"leads":4,"quotes":3,"officialQuotes":2,"incompleteQuotes":1,"followups":1,"closed":1,"ticket":2500},"training":{"rounds":2,"best":8,"scenarios":["price-first"],"scoreHistory":[6,8],"skillHistory":[{"acolhimento":7,"diagnostico":6,"precisao":7,"valor":6,"proximoPasso":8}]},"followups":[{"id":"qa-1","client":"Cliente QA","next":"Retornar amanhã","amountCents":125050,"priority":"Alta","done":false}]}}'
 request PUT /api/data "${cookie_a}" "${status}" "${response}" "${state_payload}"
 assert_status 200 "${status}" "${response}"
 
 request POST /api/auth/logout "${cookie_a}" "${status}" "${response}" '{}'
 assert_status 200 "${status}" "${response}"
-request POST /api/auth/login "${cookie_a}" "${status}" "${response}" "{\"username\":\"${user_a}\",\"password\":\"Qa-Teste-2026!\"}"
+request POST /api/auth/login "${cookie_a}" "${status}" "${response}" "{\"username\":\"${user_a}\",\"password\":\"${user_test_secret}\"}"
 assert_status 200 "${status}" "${response}"
 request GET /api/data "${cookie_a}" "${status}" "${response}"
 assert_status 200 "${status}" "${response}"
-node -e 'const d=require(process.argv[1]); if(d.state?.metrics?.quotes!==3 || d.state?.training?.scoreHistory?.join(",")!=="6,8") process.exit(1)' "${response}"
+node -e 'const d=require(process.argv[1]); if(d.state?.metrics?.quotes!==3 || d.state?.training?.scoreHistory?.join(",")!=="6,8" || d.state?.followups?.[0]?.amountCents!==125050) process.exit(1)' "${response}"
 
 request PATCH /api/auth/profile "${cookie_a}" "${status}" "${response}" "${oversized_profile}"
 assert_status 413 "${status}" "${response}"
 
-request PATCH /api/auth/profile "${cookie_a}" "${status}" "${response}" "{\"displayName\":\"QA Funcionário A Editado\",\"username\":\"${user_a_edited}\",\"branch\":\"São Carlos\",\"currentPassword\":\"Qa-Teste-2026!\",\"newPassword\":\"Qa-Teste-2026-Nova!\"}"
+request PATCH /api/auth/profile "${cookie_a}" "${status}" "${response}" "{\"displayName\":\"QA Funcionário A Editado\",\"username\":\"${user_a_edited}\",\"branch\":\"São Carlos\",\"currentPassword\":\"${user_test_secret}\",\"newPassword\":\"${updated_user_test_secret}\"}"
 assert_status 200 "${status}" "${response}"
 node -e 'const d=require(process.argv[1]); if(d.user?.displayName!=="QA Funcionário A Editado" || d.user?.branch!=="São Carlos" || d.user?.username!==process.argv[2]) process.exit(1)' "${response}" "${user_a_edited}"
 request GET /api/data "${cookie_a}" "${status}" "${response}"
 assert_status 200 "${status}" "${response}"
-node -e 'const d=require(process.argv[1]); if(d.state?.metrics?.quotes!==3 || d.state?.followups?.[0]?.client!=="Cliente QA") process.exit(1)' "${response}"
+node -e 'const d=require(process.argv[1]); if(d.state?.metrics?.quotes!==3 || d.state?.followups?.[0]?.client!=="Cliente QA" || d.state?.followups?.[0]?.amountCents!==125050) process.exit(1)' "${response}"
 request POST /api/auth/logout "${cookie_a}" "${status}" "${response}" '{}'
 assert_status 200 "${status}" "${response}"
-request POST /api/auth/login "${cookie_a}" "${status}" "${response}" "{\"username\":\"${user_a}\",\"password\":\"Qa-Teste-2026!\"}"
+request POST /api/auth/login "${cookie_a}" "${status}" "${response}" "{\"username\":\"${user_a}\",\"password\":\"${user_test_secret}\"}"
 assert_status 401 "${status}" "${response}"
-request POST /api/auth/login "${cookie_a}" "${status}" "${response}" "{\"username\":\"${user_a_edited}\",\"password\":\"Qa-Teste-2026-Nova!\"}"
+request POST /api/auth/login "${cookie_a}" "${status}" "${response}" "{\"username\":\"${user_a_edited}\",\"password\":\"${updated_user_test_secret}\"}"
 assert_status 200 "${status}" "${response}"
 request GET /api/data "${cookie_a}" "${status}" "${response}"
 assert_status 200 "${status}" "${response}"
 node -e 'const d=require(process.argv[1]); if(d.state?.metrics?.quotes!==3 || d.state?.training?.best!==8) process.exit(1)' "${response}"
 
-request POST /api/auth/register "${cookie_b}" "${status}" "${response}" "{\"displayName\":\"QA Funcionário B\",\"username\":\"${user_b}\",\"branch\":\"São Carlos\",\"password\":\"Qa-Teste-2026!\"}"
+request POST /api/auth/register "${cookie_b}" "${status}" "${response}" "{\"displayName\":\"QA Funcionário B\",\"username\":\"${user_b}\",\"branch\":\"São Carlos\",\"password\":\"${user_test_secret}\"}"
 assert_status 201 "${status}" "${response}"
 request GET /api/data "${cookie_b}" "${status}" "${response}"
 assert_status 200 "${status}" "${response}"
 node -e 'const d=require(process.argv[1]); if(d.state!==null) process.exit(1)' "${response}"
 
-blocked_status="$(curl --silent --show-error --output "${response}" --write-out '%{http_code}' --request POST --header 'Origin: https://example.invalid' --header 'Content-Type: application/json' --data '{"username":"admin","password":"admin"}' "${origin}/api/auth/login")"
+blocked_status="$(curl --silent --show-error --output "${response}" --write-out '%{http_code}' --request POST --header 'Origin: https://example.invalid' --header 'Content-Type: application/json' --data "{\"username\":\"admin\",\"password\":\"${access_test_secret}\"}" "${origin}/api/auth/login")"
 if [[ "${blocked_status}" != "403" ]]; then
   echo "Origem externa recebeu ${blocked_status}; esperado 403." >&2
   exit 1
