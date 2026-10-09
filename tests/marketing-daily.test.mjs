@@ -65,15 +65,15 @@ test("the copyable summary follows the team's list, including all zero counts", 
   let state = setMarketingCount({ days: [] }, "2026-10-09", "Ícaro", "newContacts", 2);
   state = setMarketingCount(state, "2026-10-09", "Ícaro", "interacting", 2);
   assert.equal(buildMarketingReport(state.days[0]), [
-    "Vendedora: ÍCARO 09/10", "PLATAFORMA", "Contatos novos total: 2", "Contatos interagindo: 2",
+    "Vendedora: ÍCARO", "PLATAFORMA", "Contatos novos total: 2", "Contatos interagindo: 2",
     "Contatos ñ interagindo: 0", "Contatos via fone: 0", "Atendimentos presencial novos: 0",
     "Atendimentos presencial já cliente: 0",
   ].join("\n"));
 });
 
-test("the WhatsApp report matches the supplied reference with the day's own name and date", () => {
+test("the WhatsApp report uses the seller's name without displaying the date", () => {
   const day = { ...emptyMarketingDay("2026-10-08", "Jordania"), newContacts: 3, interacting: 2, notInteracting: 1, phone: 1, inPerson: 2, inPersonExisting: 2 };
-  assert.equal(buildMarketingReport(day), "Vendedora: JORDANIA 08/10\nPLATAFORMA\nContatos novos total: 3\nContatos interagindo: 2\nContatos ñ interagindo: 1\nContatos via fone: 1\nAtendimentos presencial novos: 2\nAtendimentos presencial já cliente: 2");
+  assert.equal(buildMarketingReport(day), "Vendedora: JORDANIA\nPLATAFORMA\nContatos novos total: 3\nContatos interagindo: 2\nContatos ñ interagindo: 1\nContatos via fone: 1\nAtendimentos presencial novos: 2\nAtendimentos presencial já cliente: 2");
 });
 
 test("five-counter history keeps its existing counts and starts the added counter at zero", () => {

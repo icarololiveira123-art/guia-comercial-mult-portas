@@ -125,7 +125,7 @@ export function formatMarketingDate(date) {
 /** @param {MarketingDay} day */
 export function buildMarketingReport(day) {
   return [
-    `Vendedora: ${sellerName(day.seller).toLocaleUpperCase("pt-BR")} ${formatMarketingDate(day.date).slice(0, 5)}`,
+    `Vendedora: ${sellerName(day.seller).toLocaleUpperCase("pt-BR")}`,
     "PLATAFORMA",
     ...marketingCounters.map(({ id, reportLabel }) => `${reportLabel}: ${normalizeMarketingCount(day[id])}`),
   ].join("\n");
