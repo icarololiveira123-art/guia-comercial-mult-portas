@@ -1,6 +1,6 @@
 import { WorkspaceIcon, type WorkspaceIconName } from "./workspace-icon";
 
-type Destination = "overview" | "script" | "seller" | "training" | "timing" | "messages" | "fair" | "factory" | "catalog" | "control" | "management";
+type Destination = "overview" | "script" | "seller" | "training" | "timing" | "messages" | "fair" | "factory" | "catalog" | "control" | "marketing" | "management";
 type BrandId = "dalcomad" | "destak" | "casmavi" | "aluan" | "brimak" | "brasil" | "crv" | "lucasa" | "riobras";
 type Brand = { short: string; descriptor: string; accent: string };
 
@@ -23,6 +23,7 @@ type HomeWorkspaceProps = {
 };
 
 const tools: { section: Destination; title: string; copy: string; icon: WorkspaceIconName }[] = [
+  { section: "marketing", title: "Marketing diário", copy: "Conte os contatos do dia e copie o resumo para a equipe.", icon: "chart" },
   { section: "messages", title: "Criar mensagem", copy: "Personalize uma conversa para WhatsApp ou áudio.", icon: "message" },
   { section: "fair", title: "Convite do Feirão", copy: "Monte o convite certo para cada perfil de cliente.", icon: "mail" },
   { section: "factory", title: "Requisição de fábrica", copy: "Prepare o kit Dalcomad e exporte para Excel.", icon: "work" },

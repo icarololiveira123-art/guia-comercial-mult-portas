@@ -5,6 +5,8 @@ import { AuthScreen } from "./auth-screen";
 import { WorkspaceIcon, type WorkspaceIconName } from "./workspace-icon";
 import { HomeWorkspace } from "./home-workspace";
 import { CatalogWorkspace } from "./catalog-workspace";
+import { MarketingDaily } from "./marketing-daily";
+import { normalizeMarketingDaily, type MarketingDailyState } from "./lib/marketing-daily.mjs";
 import { AccountCenter } from "./account-center";
 import { FollowUpRow } from "./followup-row";
 import { followUpStatusOptions as statusOptions, prepareFollowUpEdit } from "./lib/followup-edit.mjs";
@@ -49,7 +51,7 @@ import {
   providerTypeOptions,
 } from "./lib/provider-message.mjs";
 
-type Section = "overview" | "script" | "seller" | "training" | "timing" | "messages" | "fair" | "factory" | "catalog" | "control" | "management";
+type Section = "overview" | "script" | "seller" | "training" | "timing" | "messages" | "fair" | "factory" | "catalog" | "control" | "marketing" | "management";
 type BrandId = "dalcomad" | "destak" | "casmavi" | "aluan" | "brimak" | "brasil" | "crv" | "lucasa" | "riobras";
 type Priority = "Alta" | "Média" | "Baixa";
 type TrainingLevel = "Básico" | "Intermediário" | "Avançado";
@@ -98,6 +100,7 @@ type PersistedGuideState = {
   sales?: unknown;
   timing?: unknown;
   followups?: unknown;
+  marketingDaily?: unknown;
   checks?: unknown;
   metrics?: unknown;
   training?: unknown;
@@ -552,6 +555,7 @@ const sections: { id: Section; label: string; icon: string; description: string 
   { id: "factory", label: "Requisição fábrica", icon: "▤", description: "Preencha e exporte" },
   { id: "catalog", label: "Catálogos", icon: "▦", description: "Marcas e soluções" },
   { id: "control", label: "Controle", icon: "✓", description: "Pendências e carteira" },
+  { id: "marketing", label: "Marketing diário", icon: "◷", description: "Contatos do dia" },
   { id: "management", label: "Gestão", icon: "▥", description: "Indicadores e rotina" },
 ];
 
@@ -559,7 +563,7 @@ const workspaceGroups: { id: string; label: string; icon: WorkspaceIconName; sec
   { id: "home", label: "Início", icon: "home", sections: ["overview"] },
   { id: "learn", label: "Aprender", icon: "book", sections: ["catalog", "seller", "training"] },
   { id: "serve", label: "Atender", icon: "message", sections: ["script", "messages", "fair", "timing"] },
-  { id: "operate", label: "Operação", icon: "work", sections: ["control", "factory"] },
+  { id: "operate", label: "Operação", icon: "work", sections: ["control", "marketing", "factory"] },
   { id: "measure", label: "Indicadores", icon: "chart", sections: ["management"] },
 ];
 
@@ -1600,6 +1604,7 @@ export default function Home() {
   const [doneSales, setDoneSales] = useState<string[]>([]);
   const [doneTiming, setDoneTiming] = useState<string[]>([]);
   const [followUps, setFollowUps] = useState<LocalFollowUp[]>(defaultFollowUps);
+  const [marketingDaily, setMarketingDaily] = useState<MarketingDailyState>({ days: [] });
   const [dailyDone, setDailyDone] = useState<string[]>([]);
   const [metrics, setMetrics] = useState(defaultMetrics);
   const [trainingMessages, setTrainingMessages] = useState<TrainingMessage[]>([]);
@@ -1689,6 +1694,7 @@ export default function Home() {
     setDoneSales([]);
     setDoneTiming([]);
     setFollowUps([]);
+    setMarketingDaily({ days: [] });
     setDailyDone([]);
     setMetrics({ ...defaultMetrics });
     setTrainingStats(emptyTrainingStats());
@@ -1946,6 +1952,7 @@ export default function Home() {
       setDoneSales(savedSales.filter((item): item is string => typeof item === "string"));
       setDoneTiming(savedTiming.filter((item): item is string => typeof item === "string"));
       setFollowUps(Array.isArray(savedFollowUps) ? normalizeFollowUps(savedFollowUps) : []);
+      setMarketingDaily(normalizeMarketingDaily(state?.marketingDaily));
       setDailyDone(savedChecks.filter((item): item is string => typeof item === "string"));
       setMetrics(savedMetrics && typeof savedMetrics === "object" ? normalizeMetrics(savedMetrics) : { ...defaultMetrics });
       if (savedTraining && typeof savedTraining === "object") {
@@ -2140,6 +2147,7 @@ export default function Home() {
       sales: doneSales,
       timing: doneTiming,
       followups: followUps,
+      marketingDaily,
       checks: dailyDone,
       metrics,
       training: trainingStats,
@@ -2212,7 +2220,7 @@ export default function Home() {
       window.clearTimeout(timer);
       if (saveTimerRef.current === timer) saveTimerRef.current = null;
     };
-  }, [authUser, dailyDone, dataLoaded, doneSales, doneTiming, drawerChecks, factoryItems, fairChannel, fairCity, fairClientName, fairConsultantName, fairDiscount, fairEmojiMode, fairEventDate, fairEventTime, fairInterest, fairProfileId, fairTone, flushPendingState, followUps, hydrated, messageAudience, messageChannel, messageEnvironment, messageLine, messageName, messageObjective, messageProof, messageQuestion, messageTone, metrics, providerName, providerObjective, providerProfile, providerQuestion, providerRegion, providerType, trainingStats]);
+  }, [authUser, dailyDone, dataLoaded, doneSales, doneTiming, drawerChecks, factoryItems, fairChannel, fairCity, fairClientName, fairConsultantName, fairDiscount, fairEmojiMode, fairEventDate, fairEventTime, fairInterest, fairProfileId, fairTone, flushPendingState, followUps, hydrated, marketingDaily, messageAudience, messageChannel, messageEnvironment, messageLine, messageName, messageObjective, messageProof, messageQuestion, messageTone, metrics, providerName, providerObjective, providerProfile, providerQuestion, providerRegion, providerType, trainingStats]);
 
   useEffect(() => {
     if (!IS_GITHUB_PAGES || !authUserId || !hydrated || !dataLoaded) return;
@@ -3665,6 +3673,8 @@ export default function Home() {
             <details className="module-reference"><summary>Como manter os registros confiáveis <span>+</span></summary><section className="control-rules"><div><span className="rule-number">01</span><strong>Número imutável</strong><p>O oficial não muda.</p></div><div><span className="rule-number">02</span><strong>Um status principal</strong><p>Sem duplicidade de cobrança.</p></div><div><span className="rule-number">03</span><strong>Histórico separado</strong><p>Encerrado não volta sozinho.</p></div><div><span className="rule-number">04</span><strong>Valor exato</strong><p>Centavos preservados.</p></div></section></details>
           </div>
         )}
+
+        {section === "marketing" && <MarketingDaily key={authUser.id} seller={authUser.displayName} state={marketingDaily} onChange={setMarketingDaily} />}
 
         {section === "management" && (
           <div className="page-content">

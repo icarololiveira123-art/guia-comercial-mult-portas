@@ -7,6 +7,7 @@ import {
   parseDalcomadKitPrice,
 } from "../../lib/dalcomad-kit.mjs";
 import { normalizeQuoteAmountCents } from "../../lib/quote-amount.mjs";
+import { normalizeMarketingDaily } from "../../lib/marketing-daily.mjs";
 
 export const GUIDE_STATE_VERSION = 4;
 
@@ -225,6 +226,7 @@ export function normalizeEmployeeState(value) {
     sales: cleanStringArray(source.sales, 120, 80),
     timing: cleanStringArray(source.timing, 120, 80),
     followups: normalizeFollowUps(source.followups),
+    marketingDaily: normalizeMarketingDaily(source.marketingDaily),
     checks: cleanStringArray(source.checks, 120, 80),
     metrics: normalizeMetrics(source.metrics),
     training: normalizeTraining(source.training),

@@ -18,11 +18,14 @@ Guia comercial para a equipe, com roteiro de atendimento, ferramentas de trabalh
 | Requisição fábrica | Preenchimento e exportação de requisições. |
 | Catálogos | Biblioteca de marcas com abas Aprender, Fichas e PDFs. |
 | Controle | Pendências e carteira de clientes. |
+| Marketing diário | Cinco contadores, resumo para WhatsApp e histórico por dia e por conta. |
 | Gestão | Indicadores e rotina comercial pessoal. |
 
 A navegação no topo reúne os módulos em Início, Aprender, Atender, Operação e Indicadores. Mensagens e Feirão usam etapas de contexto, prévia e modelos. Os módulos existentes e os dados de cada conta foram preservados.
 
 O catálogo inclui trilhas para nove marcas, com noções de materiais, tipos de medida, pontos de qualidade, exemplos e perguntas com explicação. Há cinco catálogos Brimak em PDF, cada um com roteiro de estudo e exercício. O glossário ajuda a distinguir folha, conjunto e vão acabado.
+
+O Marketing diário fica em Operação e nas ferramentas da página inicial. Os cinco contadores aceitam os botões +/− e edição direta. O resumo segue o formato da equipe e pode ser copiado. A troca de dia usa o horário de Brasília, abre contadores zerados e preserva até 366 dias registrados no histórico da própria conta. A ação Zerar contadores de hoje exige confirmação na tela e afeta apenas o dia atual.
 
 As aulas são material de estudo. Confirme especificações, composição, medidas, disponibilidade, instalação, desempenho e garantia na ficha vigente do fabricante antes de orçar. Não há uma folga de instalação universal. O catálogo geral Brimak de 2018 serve como referência histórica.
 

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { localApiFetch } from "../app/lib/github-local-api.mjs";
+import { getMarketingDay, resetMarketingDay, setMarketingCount } from "../app/lib/marketing-daily.mjs";
 
 class Storage {
   #items = new Map();
@@ -85,6 +86,51 @@ test("local accounts keep work isolated across tabs, logouts, reloads and profil
     assert.deepEqual((await request("/api/data")).data.state, clearedState);
     globalThis.sessionStorage = bobTab;
     assert.deepEqual((await request("/api/data")).data.state, bobState);
+  } finally {
+    if (previousLocal === undefined) delete globalThis.localStorage;
+    else globalThis.localStorage = previousLocal;
+    if (previousSession === undefined) delete globalThis.sessionStorage;
+    else globalThis.sessionStorage = previousSession;
+  }
+});
+
+test("daily marketing reports persist per account and resetting one day cannot change another user's report", async () => {
+  const previousLocal = globalThis.localStorage;
+  const previousSession = globalThis.sessionStorage;
+  globalThis.localStorage = new Storage();
+  const firstTab = new Storage();
+  const secondTab = new Storage();
+  globalThis.sessionStorage = firstTab;
+  const firstSecret = crypto.randomUUID();
+  const secondSecret = crypto.randomUUID();
+  try {
+    const first = await request("/api/auth/register", "POST", registration("marketing.a", firstSecret));
+    assert.equal(first.status, 201);
+    let marketingDaily = setMarketingCount({ days: [] }, "2026-10-08", "Vendedor A", "newContacts", 3);
+    marketingDaily = setMarketingCount(marketingDaily, "2026-10-09", "Vendedor A", "phone", 2);
+    const original = { marketingDaily, followups: [{ id: "keep", client: "Cliente exemplo", next: "Retornar" }] };
+    assert.equal((await request("/api/data", "PUT", { state: original, baseRevision: null })).status, 200);
+
+    globalThis.sessionStorage = secondTab;
+    assert.equal((await request("/api/auth/register", "POST", registration("marketing.b", secondSecret))).status, 201);
+    assert.equal((await request("/api/data")).data.state, null);
+    const secondState = { marketingDaily: setMarketingCount({ days: [] }, "2026-10-09", "Vendedor B", "phone", 7) };
+    assert.equal((await request("/api/data", "PUT", { state: secondState, baseRevision: null })).status, 200);
+
+    globalThis.sessionStorage = firstTab;
+    await request("/api/auth/logout", "POST");
+    assert.equal((await request("/api/auth/login", "POST", { username: "marketing.a", password: firstSecret })).status, 200);
+    const reloaded = await request("/api/data");
+    assert.deepEqual(reloaded.data.state, original);
+    const reset = { ...original, marketingDaily: resetMarketingDay(marketingDaily, "2026-10-09", "Vendedor A") };
+    assert.equal((await request("/api/data", "PUT", { state: reset, baseRevision: reloaded.data.revision })).status, 200);
+    const saved = (await request("/api/data")).data.state;
+    assert.equal(getMarketingDay(saved.marketingDaily, "2026-10-09", "Vendedor A").phone, 0);
+    assert.equal(getMarketingDay(saved.marketingDaily, "2026-10-08", "Vendedor A").newContacts, 3);
+    assert.deepEqual(saved.followups, original.followups);
+
+    globalThis.sessionStorage = secondTab;
+    assert.deepEqual((await request("/api/data")).data.state, secondState);
   } finally {
     if (previousLocal === undefined) delete globalThis.localStorage;
     else globalThis.localStorage = previousLocal;
