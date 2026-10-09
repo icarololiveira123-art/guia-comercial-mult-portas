@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { importLocalAccounts, migrateLegacyEmployeeLogin } from "../app/lib/local-account-migration.mjs";
+import { importLocalAccounts, migrateLegacyEmployeeLogin, recoverLegacyEmployeeData } from "../app/lib/local-account-migration.mjs";
 
 class Storage {
   items = new Map();
@@ -344,5 +344,244 @@ test("cancellation prevents further uploads and never changes legacy credentials
     return reply({ user: user(entry.account, 95) }, 201);
   }, credentials(entry), storage, { signal: afterRegister.signal }), { name: "AbortError" });
   assert.equal(storage.getItem("mult-portas-shared-user-95-pending-state-v1"), null);
+  unchanged(storage, before);
+});
+
+const recoveryCredentials = (entry, id = 121) => ({ ...credentials(entry), user: user(entry.account, id) });
+const emptyRemote = () => ({ state: null, revision: null, clientState: { schemaVersion: 1 } });
+
+test("successful login recovers legacy work after a lost registration response without creating a second account", async () => {
+  const entry = await legacy();
+  const storage = new Storage();
+  saved(storage, [entry]);
+  state(storage, entry.account.id);
+  storage.setItem(`mult-portas-guia-user-${entry.account.id}-resume-v1`, JSON.stringify({ section: "marketing" }));
+  const before = original(storage);
+  const paths = [];
+  const result = await recoverLegacyEmployeeData(async (path, init) => {
+    paths.push([path, init.method]);
+    if (path === "/api/auth/me") return reply({ user: user(entry.account, 121), admin: false });
+    if (init.method === "GET") return reply(emptyRemote());
+    const body = JSON.parse(init.body);
+    assert.equal(body.baseRevision, null);
+    assert.equal(body.state.followups[0].amountCents, 234567);
+    assert.equal(body.clientState.resume.section, "marketing");
+    assert.deepEqual(JSON.parse(storage.getItem("mult-portas-shared-user-121-pending-state-v1")).state, body.state);
+    return reply({ ok: true, revision: "recovered-initial-state" });
+  }, recoveryCredentials(entry), storage, { isCurrent: () => true });
+  assert.deepEqual(result, { status: "synced", localUserId: entry.account.id, revision: "recovered-initial-state" });
+  assert.deepEqual(paths, [["/api/auth/me", "GET"], ["/api/data", "GET"], ["/api/data", "PUT"]]);
+  assert.equal(storage.getItem("mult-portas-shared-user-121-pending-state-v1"), null);
+  assert.equal(storage.getItem("mult-portas-shared-user-121-resume-v1"), storage.getItem(`mult-portas-guia-user-${entry.account.id}-resume-v1`));
+  unchanged(storage, before);
+});
+
+test("recovery verifies the exact legacy password before reading work or using the authenticated API", async () => {
+  const entry = await legacy();
+  const storage = new Storage();
+  saved(storage, [entry]);
+  state(storage, entry.account.id);
+  const before = original(storage);
+  let readsOfWork = 0;
+  let requests = 0;
+  const guardedStorage = {
+    getItem(key) {
+      if (key.startsWith("mult-portas-pages-state-v1-") || key.endsWith("resume-v1")) readsOfWork++;
+      return storage.getItem(key);
+    },
+    setItem: (key, value) => storage.setItem(key, value),
+  };
+  const request = async () => { requests++; throw new Error("must not send"); };
+  assert.equal(await recoverLegacyEmployeeData(request, { ...recoveryCredentials(entry), password: crypto.randomUUID() }, guardedStorage), null);
+  assert.equal(await recoverLegacyEmployeeData(request, { ...recoveryCredentials(entry), user: user({ ...entry.account, username: "another.employee" }, 121) }, guardedStorage), null);
+  assert.equal(readsOfWork, 0);
+  assert.equal(requests, 0);
+  unchanged(storage, before);
+});
+
+test("any remote business state, revision or noncanonical empty progress prevents automatic restoration", async () => {
+  const entry = await legacy();
+  for (const remote of [
+    { ...emptyRemote(), state: {} },
+    { ...emptyRemote(), state: { metrics: { quotes: 19 } } },
+    { ...emptyRemote(), revision: "remote-work-version" },
+    { ...emptyRemote(), clientState: { schemaVersion: 1, resume: { section: "catalog" } } },
+    { ...emptyRemote(), clientState: { schemaVersion: 1, brands: {} } },
+    { ...emptyRemote(), clientState: { schemaVersion: 1, resume: {} } },
+  ]) {
+    const storage = new Storage();
+    saved(storage, [entry]);
+    storage.setItem(`mult-portas-pages-state-v1-${entry.account.id}`, "unreadable original that must not be inspected");
+    const before = original(storage);
+    const paths = [];
+    const result = await recoverLegacyEmployeeData(async (path, init) => {
+      paths.push([path, init.method]);
+      return path === "/api/auth/me" ? reply({ user: user(entry.account, 121), admin: false }) : reply(remote);
+    }, recoveryCredentials(entry), storage);
+    assert.equal(result.status, "skipped");
+    assert.deepEqual(paths, [["/api/auth/me", "GET"], ["/api/data", "GET"]]);
+    assert.equal(storage.getItem("mult-portas-shared-user-121-pending-state-v1"), null);
+    unchanged(storage, before);
+  }
+});
+
+test("quota-limited migration can upload originals directly and retry after an unacknowledged attempt", async () => {
+  const entry = await legacy();
+  const storage = new Storage();
+  saved(storage, [entry]);
+  state(storage, entry.account.id);
+  const before = original(storage);
+  const fullStorage = {
+    getItem: (key) => storage.getItem(key),
+    setItem() { throw new DOMException("full", "QuotaExceededError"); },
+    removeItem: (key) => storage.removeItem(key),
+  };
+  let fail = true;
+  let initialPuts = 0;
+  const request = async (path, init) => {
+    if (path === "/api/auth/me") return reply({ user: user(entry.account, 121), admin: false });
+    if (init.method === "GET") return reply(emptyRemote());
+    initialPuts++;
+    assert.equal(JSON.parse(init.body).state.followups[0].amountCents, 234567);
+    assert.equal(JSON.parse(init.body).baseRevision, null);
+    assert.equal(storage.getItem("mult-portas-shared-user-121-pending-state-v1"), null);
+    if (fail) throw new TypeError("network interrupted");
+    return reply({ ok: true, revision: "quota-retry-saved" });
+  };
+  const first = await recoverLegacyEmployeeData(request, recoveryCredentials(entry), fullStorage);
+  assert.equal(first.status, "pending");
+  assert.equal(first.blockWorkspace, true);
+  assert.ok(first.warning);
+  fail = false;
+  const second = await recoverLegacyEmployeeData(request, recoveryCredentials(entry), fullStorage);
+  assert.deepEqual(second, { status: "synced", localUserId: entry.account.id, revision: "quota-retry-saved" });
+  assert.equal(initialPuts, 2);
+  unchanged(storage, before);
+});
+
+test("valid existing shared queues are preserved for hydration instead of overwritten by legacy recovery", async () => {
+  const entry = await legacy();
+  const storage = new Storage();
+  saved(storage, [entry]);
+  state(storage, entry.account.id);
+  const pendingKey = "mult-portas-shared-user-121-pending-state-v1";
+  const draft = { state: { metrics: { quotes: 33 } }, baseRevision: null, updatedAt: new Date().toISOString(), clientState: { schemaVersion: 1 } };
+  storage.setItem(pendingKey, JSON.stringify(draft));
+  const before = original(storage);
+  const paths = [];
+  const result = await recoverLegacyEmployeeData(async (path, init) => {
+    paths.push([path, init.method]);
+    return reply({ user: user(entry.account, 121), admin: false });
+  }, recoveryCredentials(entry), storage);
+  assert.equal(result.status, "pending");
+  assert.equal(result.blockWorkspace, undefined);
+  assert.deepEqual(paths, [["/api/auth/me", "GET"]]);
+  assert.equal(storage.getItem(pendingKey), before.get(pendingKey));
+  unchanged(storage, before);
+});
+
+test("damaged or unreadable destination queues block hydration and remain available for recovery", async () => {
+  const entry = await legacy();
+  for (const raw of ["{broken", "{}", JSON.stringify({ state: {}, baseRevision: null, updatedAt: "bad-date" }), JSON.stringify({ state: {}, baseRevision: null, updatedAt: new Date().toISOString(), clientState: { schemaVersion: 1, unknown: true } })]) {
+    const storage = new Storage();
+    saved(storage, [entry]);
+    state(storage, entry.account.id);
+    storage.setItem("mult-portas-shared-user-121-pending-state-v1", raw);
+    const before = original(storage);
+    let requests = 0;
+    const result = await recoverLegacyEmployeeData(async (path) => {
+      requests++;
+      assert.equal(path, "/api/auth/me");
+      return reply({ user: user(entry.account, 121), admin: false });
+    }, recoveryCredentials(entry), storage);
+    assert.equal(result.status, "blocked");
+    assert.equal(result.blockWorkspace, true);
+    assert.equal(requests, 1);
+    unchanged(storage, before);
+  }
+  const storage = new Storage();
+  saved(storage, [entry]);
+  const guarded = {
+    getItem(key) { if (key === "mult-portas-shared-user-121-pending-state-v1") throw new Error("blocked"); return storage.getItem(key); },
+    setItem() { throw new Error("must not write"); },
+  };
+  const result = await recoverLegacyEmployeeData(async () => reply({ user: user(entry.account, 121), admin: false }), recoveryCredentials(entry), guarded);
+  assert.equal(result.status, "blocked");
+  assert.equal(result.blockWorkspace, true);
+});
+
+test("a null-revision conflict preserves both server work and a recoverable legacy draft", async () => {
+  const entry = await legacy();
+  const storage = new Storage();
+  saved(storage, [entry]);
+  state(storage, entry.account.id);
+  const before = original(storage);
+  const result = await recoverLegacyEmployeeData(async (path, init) => {
+    if (path === "/api/auth/me") return reply({ user: user(entry.account, 121), admin: false });
+    if (init.method === "GET") return reply(emptyRemote());
+    assert.equal(JSON.parse(init.body).baseRevision, null);
+    return reply({ error: "Workspace changed on another device.", revision: "other-device-version" }, 409);
+  }, recoveryCredentials(entry), storage);
+  assert.equal(result.status, "conflict");
+  assert.equal(result.blockWorkspace, undefined);
+  assert.equal(JSON.parse(storage.getItem("mult-portas-shared-user-121-pending-state-v1")).state.followups[0].amountCents, 234567);
+  unchanged(storage, before);
+});
+
+test("unconfirmed initial PUTs permit hydration only when their exact shared backup remains recoverable", async () => {
+  const entry = await legacy();
+  for (const full of [false, true]) {
+    const storage = new Storage();
+    saved(storage, [entry]);
+    state(storage, entry.account.id);
+    const before = original(storage);
+    const targetStorage = full ? { getItem: (key) => storage.getItem(key), setItem() { throw new DOMException("full", "QuotaExceededError"); } } : storage;
+    const result = await recoverLegacyEmployeeData(async (path, init) => {
+      if (path === "/api/auth/me") return reply({ user: user(entry.account, 121), admin: false });
+      if (init.method === "GET") return reply(emptyRemote());
+      return reply({ ok: true, revision: "" });
+    }, recoveryCredentials(entry), targetStorage);
+    assert.equal(result.status, "pending");
+    assert.equal(result.blockWorkspace, full ? true : undefined);
+    unchanged(storage, before);
+  }
+});
+
+test("wrong remote identity or malformed remote data never authorize reading and uploading old work", async () => {
+  const entry = await legacy();
+  for (const outcome of ["wrong-id", "wrong-username", "malformed-data"]) {
+    const storage = new Storage();
+    saved(storage, [entry]);
+    storage.setItem(`mult-portas-pages-state-v1-${entry.account.id}`, "old work must not be read");
+    const before = original(storage);
+    let uploads = 0;
+    const result = await recoverLegacyEmployeeData(async (path, init) => {
+      if (init.method === "PUT") { uploads++; throw new Error("must not upload"); }
+      if (path === "/api/auth/me") return reply({ user: user({ ...entry.account, ...(outcome === "wrong-username" ? { username: "other.employee" } : {}) }, outcome === "wrong-id" ? 122 : 121), admin: false });
+      return reply({ ...emptyRemote(), revision: 5 });
+    }, recoveryCredentials(entry), storage);
+    assert.equal(result.status, "blocked");
+    assert.equal(result.blockWorkspace, true);
+    assert.equal(uploads, 0);
+    unchanged(storage, before);
+  }
+});
+
+test("a session switch between remote inspection and upload cancels legacy restoration", async () => {
+  const entry = await legacy();
+  const storage = new Storage();
+  saved(storage, [entry]);
+  state(storage, entry.account.id);
+  const before = original(storage);
+  let current = true;
+  let uploads = 0;
+  await assert.rejects(recoverLegacyEmployeeData(async (path, init) => {
+    if (path === "/api/auth/me") return reply({ user: user(entry.account, 121), admin: false });
+    if (init.method === "PUT") uploads++;
+    current = false;
+    return reply(emptyRemote());
+  }, recoveryCredentials(entry), storage, { isCurrent: () => current }), { name: "AbortError" });
+  assert.equal(uploads, 0);
+  assert.equal(storage.getItem("mult-portas-shared-user-121-pending-state-v1"), null);
   unchanged(storage, before);
 });

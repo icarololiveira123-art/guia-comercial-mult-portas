@@ -1,3 +1,3 @@
-// This is a public endpoint, not a credential. It is filled only after the
-// shared API has been deployed and verified. GitHub Pages remains the frontend.
-export const sharedApiBaseUrl = import.meta.env?.VITE_SHARED_API_URL ?? "";
+// Public endpoint only. Credentials stay in the backend; GitHub Pages hosts
+// the frontend. An explicit empty override supports legacy-mode verification.
+export const sharedApiBaseUrl = import.meta.env?.VITE_SHARED_API_URL ?? "https://duywnshiwiqkvicrdxdt.supabase.co/functions/v1/mult-portas-api";

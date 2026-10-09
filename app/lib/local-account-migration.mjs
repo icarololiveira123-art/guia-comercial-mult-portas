@@ -1,5 +1,5 @@
 import { normalizeEmployeeState } from "../api/data/state-contract.mjs";
-import { clientProgressStorageKeys, collectClientProgress, migrateClientProgress } from "./client-progress.mjs";
+import { clientProgressStorageKeys, collectClientProgress, migrateClientProgress, normalizeClientProgress, MAX_CLIENT_PROGRESS_BYTES } from "./client-progress.mjs";
 
 // This is an authenticated, explicit transfer of legacy browser accounts.
 // Legacy credentials, sessions, saved work and progress are never modified.
@@ -15,6 +15,9 @@ const encoder = new TextEncoder();
 /** @typedef {{getItem:(key:string)=>string|null,setItem:(key:string,value:string)=>void,removeItem?:(key:string)=>void}} MigrationStorage */
 /** @typedef {(path:string,init?:RequestInit)=>Promise<Response>} MigrationRequest */
 /** @typedef {{signal?:AbortSignal}} MigrationOptions */
+/** @typedef {{signal?:AbortSignal,isCurrent?:()=>boolean}} RecoveryOptions */
+/** @typedef {{id:number,username:string,displayName:string,branch:string}} AuthenticatedEmployee */
+/** @typedef {{status:'synced'|'pending'|'blocked'|'conflict'|'skipped',localUserId?:number,warning?:string,revision?:string,blockWorkspace?:true}} RecoveryResult */
 
 function record(value) { return value !== null && typeof value === "object" && !Array.isArray(value); }
 function handle(value) { return value.trim().toLocaleLowerCase("pt-BR"); }
@@ -244,6 +247,198 @@ export async function migrateLegacyEmployeeLogin(request, { username, password }
     ...(revision ? { revision } : {}),
     ...(!synced ? { migrationWarning: "O acesso foi transferido, mas os dados ainda aguardam confirmação de salvamento. Os originais deste navegador foram preservados." } : {}),
   }, response.status);
+}
+
+function recoveryCheck(signal, isCurrent) {
+  checkAbort(signal);
+  if (isCurrent) {
+    let current = false;
+    try { current = isCurrent() === true; } catch { /* An unreadable session cannot authorize transfer. */ }
+    if (!current) throw new DOMException("A operação foi cancelada porque o acesso foi alterado.", "AbortError");
+  }
+}
+
+function validAuthenticatedEmployee(value) {
+  return record(value) && Number.isSafeInteger(value.id) && value.id > 0
+    && typeof value.username === "string" && USERNAME.test(value.username.trim()) && handle(value.username) !== "admin"
+    && typeof value.displayName === "string" && value.displayName.trim().length >= 2 && value.displayName.trim().length <= 80
+    && BRANCHES.has(value.branch);
+}
+
+function validRecoveryQueue(raw) {
+  const value = parse(raw, MAX_STATE_BYTES + MAX_CLIENT_PROGRESS_BYTES + 8_000);
+  if (!record(value) || !Object.hasOwn(value, "baseRevision")
+    || value.baseRevision !== null && (typeof value.baseRevision !== "string" || value.baseRevision.length > 256)
+    || typeof value.updatedAt !== "string" || !Number.isFinite(Date.parse(value.updatedAt))) {
+    throw new Error("damaged shared queue");
+  }
+  safeState(value.state);
+  if (Object.hasOwn(value, "clientState")) {
+    if (!record(value.clientState)) throw new Error("damaged shared progress");
+    normalizeClientProgress(value.clientState);
+  }
+}
+
+/**
+ * After a successful shared employee login, recover a transfer interrupted
+ * after account creation. The caller supplies the server-authenticated user and
+ * the submitted credentials. Matching the original local proof precedes any
+ * read of legacy work. Existing remote work and existing destination queues are
+ * never overwritten; only a genuinely empty remote workspace can be restored.
+ *
+ * The request must remain bound to this login throughout the workflow. Supply
+ * isCurrent using the shared session snapshot captured immediately after login;
+ * an account switch cancels the next operation rather than using its new token.
+ * Queue quota failure does not prevent a guarded initial PUT: original local
+ * records remain intact, so an unacknowledged transfer can retry at next login.
+ * A valid existing queue returns pending for the normal hydration/flush path.
+ * blockWorkspace means the caller must preserve the retryable login form and
+ * delay hydration/autosave; no valid shared queue is available to restore work.
+ * @param {MigrationRequest} request
+ * @param {{user:AuthenticatedEmployee,username:string,password:string}} credentials
+ * @param {MigrationStorage} [storage]
+ * @param {RecoveryOptions} [options]
+ * @returns {Promise<RecoveryResult|null>}
+ */
+export async function recoverLegacyEmployeeData(request, { user, username, password }, storage, { signal, isCurrent } = {}) {
+  recoveryCheck(signal, isCurrent);
+  if (!validAuthenticatedEmployee(user) || typeof username !== "string" || !USERNAME.test(username.trim())
+    || handle(username) !== handle(user.username) || typeof password !== "string" || password.length < 8 || password.length > 120) return null;
+  let currentStorage;
+  let account;
+  try {
+    currentStorage = storageValue(storage);
+    const all = accounts(currentStorage);
+    const matched = all.filter((entry) => record(entry) && typeof entry.username === "string" && handle(entry.username) === handle(username));
+    if (matched.length !== 1) return null;
+    account = profile(matched[0]);
+    if (!account || all.filter((entry) => record(entry) && entry.id === account.oldId).length !== 1) return null;
+  } catch {
+    return { status: "blocked", blockWorkspace: true, warning: "Os acessos antigos deste navegador precisam ser recuperados. Nada anterior foi alterado." };
+  }
+  if (!(await matches(password, account.password, signal))) return null;
+  recoveryCheck(signal, isCurrent);
+  const localUserId = account.oldId;
+  const blocked = (warning) => ({ status: /** @type {const} */ ("blocked"), localUserId, warning, blockWorkspace: /** @type {const} */ (true) });
+  const pendingWarning = "Os dados antigos deste navegador ainda aguardam confirmação de transferência. Os originais foram preservados; tente entrar novamente para continuar.";
+
+  // Verify the current remote identity, not just a previously returned DTO.
+  try {
+    const result = await request("/api/auth/me", init("GET", undefined, signal));
+    recoveryCheck(signal, isCurrent);
+    const access = await responseJson(result);
+    recoveryCheck(signal, isCurrent);
+    if (!result.ok || access.admin !== false || !validAuthenticatedEmployee(access.user)
+      || access.user.id !== user.id || handle(access.user.username) !== handle(user.username)) {
+      return blocked("O acesso atual não confirmou a conta correta para a transferência. Os originais deste navegador foram preservados.");
+    }
+  } catch (error) {
+    recoveryCheck(signal, isCurrent);
+    if (error?.name === "AbortError") throw error;
+    return blocked("Não foi possível verificar o acesso para a transferência. Os originais deste navegador foram preservados.");
+  }
+
+  const pendingKey = `mult-portas-shared-user-${user.id}-pending-state-v1`;
+  /** @type {(status:'pending'|'conflict',warning:string)=>RecoveryResult} */
+  const unsynced = (status, warning) => {
+    let recoverable = false;
+    try {
+      const raw = currentStorage.getItem(pendingKey);
+      if (raw !== null) { validRecoveryQueue(raw); recoverable = true; }
+    } catch { /* Unreadable or damaged queues cannot hydrate a workspace. */ }
+    return { status, localUserId, warning, ...(!recoverable ? { blockWorkspace: /** @type {const} */ (true) } : {}) };
+  };
+  try {
+    const existing = currentStorage.getItem(pendingKey);
+    if (existing !== null) {
+      validRecoveryQueue(existing);
+      return { status: "pending", localUserId, warning: pendingWarning };
+    }
+  } catch {
+    return blocked("O rascunho de transferência deste navegador precisa ser recuperado antes de continuar. Nada anterior foi alterado.");
+  }
+
+  // Null state, null revision, and exactly the canonical empty progress are all
+  // required. A reset or even a progress-only remote record remains authoritative.
+  try {
+    const result = await request("/api/data", init("GET", undefined, signal));
+    recoveryCheck(signal, isCurrent);
+    const remote = await responseJson(result);
+    recoveryCheck(signal, isCurrent);
+    if (!result.ok || !Object.hasOwn(remote, "state") || !Object.hasOwn(remote, "revision")
+      || remote.revision !== null && (typeof remote.revision !== "string" || !remote.revision)
+      || !record(remote.clientState)) {
+      return blocked("Não foi possível confirmar os dados já salvos na conta. Os originais deste navegador foram preservados.");
+    }
+    const remoteProgress = normalizeClientProgress(remote.clientState);
+    if (remote.state !== null || remote.revision !== null || JSON.stringify(remoteProgress) !== '{"schemaVersion":1}') {
+      return { status: "skipped", localUserId };
+    }
+  } catch (error) {
+    recoveryCheck(signal, isCurrent);
+    if (error?.name === "AbortError") throw error;
+    return blocked("Não foi possível verificar os dados da conta antes da transferência. Os originais deste navegador foram preservados.");
+  }
+
+  recoveryCheck(signal, isCurrent);
+  let saved;
+  try { saved = snapshot(account, currentStorage); }
+  catch { return blocked("Os dados antigos deste navegador precisam ser recuperados antes da transferência. Nada anterior foi alterado."); }
+  if (saved.state === null && !hasProgress(saved.clientState)) return null;
+  const pending = {
+    state: saved.state ?? normalizeEmployeeState(null), baseRevision: null,
+    updatedAt: new Date().toISOString(), clientState: saved.clientState,
+  };
+  const serialized = JSON.stringify(pending);
+  let queued = false;
+  // Do not replace a queue that appeared while the remote reads were underway.
+  try {
+    recoveryCheck(signal, isCurrent);
+    const existing = currentStorage.getItem(pendingKey);
+    if (existing !== null) {
+      validRecoveryQueue(existing);
+      return { status: "pending", localUserId, warning: pendingWarning };
+    }
+  } catch (error) {
+    if (error?.name === "AbortError") throw error;
+    return blocked("O rascunho de transferência deste navegador precisa ser recuperado antes de continuar. Nada anterior foi alterado.");
+  }
+  try {
+    currentStorage.setItem(pendingKey, serialized);
+    queued = currentStorage.getItem(pendingKey) === serialized;
+  } catch { /* A full browser can still send originals directly to the empty workspace. */ }
+  try {
+    const current = currentStorage.getItem(pendingKey);
+    if (current !== null && current !== serialized) {
+      validRecoveryQueue(current);
+      return { status: "pending", localUserId, warning: pendingWarning };
+    }
+  } catch {
+    return blocked("O rascunho de transferência deste navegador precisa ser recuperado antes de continuar. Nada anterior foi alterado.");
+  }
+
+  try {
+    recoveryCheck(signal, isCurrent);
+    const result = await request("/api/data", init("PUT", { state: pending.state, baseRevision: null, clientState: pending.clientState }, signal));
+    recoveryCheck(signal, isCurrent);
+    if (result.status === 409) return unsynced("conflict", "A conta foi atualizada durante a transferência. Os dados da conta e os originais deste navegador foram preservados.");
+    if (!result.ok) return unsynced("pending", pendingWarning);
+    const acknowledgement = await responseJson(result);
+    recoveryCheck(signal, isCurrent);
+    if (acknowledgement.ok !== true || typeof acknowledgement.revision !== "string" || !acknowledgement.revision
+      || acknowledgement.revision.length > 200) return unsynced("pending", pendingWarning);
+    if (queued) {
+      try {
+        if (currentStorage.getItem(pendingKey) === serialized) currentStorage.removeItem?.(pendingKey);
+      } catch { /* The acknowledged originals and any recoverable queue remain intact. */ }
+    }
+    migrateClientProgress(account.oldId, user.id, currentStorage, { fromScope: "local", toScope: "shared" });
+    return { status: "synced", localUserId, revision: acknowledgement.revision };
+  } catch (error) {
+    recoveryCheck(signal, isCurrent);
+    if (error?.name === "AbortError") throw error;
+    return unsynced("pending", pendingWarning);
+  }
 }
 
 function deviceId(storage) {

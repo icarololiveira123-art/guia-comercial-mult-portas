@@ -13,10 +13,11 @@ import { followUpStatusOptions as statusOptions, prepareFollowUpEdit } from "./l
 import { normalizeQuoteAmountCents } from "./lib/quote-amount.mjs";
 import { catalogItems as catalogItemData } from "./lib/catalog-items.mjs";
 import { localApiFetch } from "./lib/github-local-api.mjs";
-import { createSharedApiFetch } from "./lib/shared-api-client.mjs";
+import { createSharedApiFetch, SHARED_SESSION_KEY } from "./lib/shared-api-client.mjs";
 import { sharedApiBaseUrl } from "./lib/shared-api-config.mjs";
 import { applyClientProgress, collectClientProgress, normalizeClientProgress, mergeClientProgress, CLIENT_PROGRESS_EVENT } from "./lib/client-progress.mjs";
-import { migrateLegacyEmployeeLogin } from "./lib/local-account-migration.mjs";
+import { migrateLegacyEmployeeLogin, recoverLegacyEmployeeData } from "./lib/local-account-migration.mjs";
+import { readPendingBackup, archiveDamagedPendingBackup } from "./lib/pending-backup.mjs";
 import { readAccessSession } from "./lib/session-check.mjs";
 import { guidedCustomerReply } from "./api/coach/customer-policy.mjs";
 import {
@@ -535,21 +536,17 @@ type LocalPendingState = {
   clientState?: unknown;
 };
 
-function readLocalPendingState(userId: number): LocalPendingState | null {
-  if (typeof window === "undefined") return null;
+type LocalPendingBackup =
+  | { status: "valid"; pending: LocalPendingState; raw: string }
+  | { status: "damaged"; raw: string }
+  | { status: "absent" | "unavailable" };
+
+function readLocalPendingState(userId: number): LocalPendingBackup {
+  if (typeof window === "undefined") return { status: "absent" };
   try {
-    const parsed = safelyParseJson(localStorage.getItem(scopedStorageKey(userId, "pending-state-v1")));
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
-    const source = parsed as Partial<LocalPendingState>;
-    if (!source.state || typeof source.state !== "object" || Array.isArray(source.state)) return null;
-    return {
-      state: source.state,
-      baseRevision: typeof source.baseRevision === "string" ? source.baseRevision : null,
-      updatedAt: typeof source.updatedAt === "string" ? source.updatedAt : "",
-      ...(source.clientState ? { clientState: source.clientState } : {}),
-    };
+    return readPendingBackup(localStorage, scopedStorageKey(userId, "pending-state-v1")) as LocalPendingBackup;
   } catch {
-    return null;
+    return { status: "unavailable" };
   }
 }
 
@@ -1654,6 +1651,7 @@ export default function Home() {
   const [dataLoaded, setDataLoaded] = useState(false);
   const [dataLoadError, setDataLoadError] = useState("");
   const [dataLoadAttempt, setDataLoadAttempt] = useState(0);
+  const [damagedPendingBackup, setDamagedPendingBackup] = useState<{ userId: number; raw: string } | null>(null);
   const [clientProgressVersion, setClientProgressVersion] = useState(0);
   const [conflictDraftAvailable, setConflictDraftAvailable] = useState(false);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
@@ -1693,6 +1691,7 @@ export default function Home() {
     progressStateRef.current = { schemaVersion: 1 };
     progressSnapshotRef.current = "";
     setConflictDraftAvailable(false);
+    setDamagedPendingBackup(null);
     voiceCaptureAttemptRef.current += 1;
     trainingRequestRef.current?.controller.abort();
     trainingRequestRef.current = null;
@@ -1895,6 +1894,19 @@ export default function Home() {
     readAccessSession(apiFetch, controller.signal)
       .then((data) => {
         if (cancelled) return;
+        if (IS_SHARED_API && data.user) {
+          const stored = safelyParseJson(sessionStorage.getItem(SHARED_SESSION_KEY));
+          if (stored && typeof stored === "object" && !Array.isArray(stored)) {
+            const session = stored as { userId?: unknown; legacyRecoveryRequired?: unknown };
+            if (session.userId === data.user.id && session.legacyRecoveryRequired === true) {
+              setAuthError("Entre novamente neste aparelho para concluir a transferência dos dados anteriores.");
+              setIsAdmin(false);
+              setAuthUser(null);
+              setAuthLoading(false);
+              return;
+            }
+          }
+        }
         setIsAdmin(data.admin === true);
         setAuthUser(data.user && typeof data.user.id === "number" ? data.user : null);
         setAuthLoading(false);
@@ -1947,8 +1959,14 @@ export default function Home() {
         if (payload.state && typeof payload.state === "object" && !Array.isArray(payload.state)) {
           state = payload.state as PersistedGuideState;
         }
-        const localPending = readLocalPendingState(authUserId);
-        if (localPending) {
+        const backup = readLocalPendingState(authUserId);
+        if (backup.status === "damaged") {
+          setDamagedPendingBackup({ userId: authUserId, raw: backup.raw });
+          throw new Error("Um rascunho deste aparelho precisa ser recuperado. Guarde uma cópia para abrir os dados já salvos.");
+        }
+        setDamagedPendingBackup(null);
+        if (backup.status === "valid") {
+          const localPending = backup.pending;
           state = localPending.state;
           revisionRef.current = localPending.baseRevision;
           usingLocalBackup = true;
@@ -1957,7 +1975,8 @@ export default function Home() {
             applyClientProgress(authUserId, loadedProgress, undefined, { scope: "shared" });
           }
         } else {
-          clearScopedLocalState(authUserId);
+          // An unreadable browser store is not proof that no draft exists.
+          if (backup.status === "absent") clearScopedLocalState(authUserId);
           if (IS_SHARED_API && payload.clientState) {
             loadedProgress = normalizeClientProgress(payload.clientState);
             applyClientProgress(authUserId, loadedProgress, undefined, { scope: "shared" });
@@ -2641,6 +2660,27 @@ export default function Home() {
     }
   }
 
+  function downloadDamagedPendingBackup() {
+    if (!authUserId || damagedPendingBackup?.userId !== authUserId) return;
+    const href = URL.createObjectURL(new Blob([damagedPendingBackup.raw], { type: "application/json" }));
+    const link = document.createElement("a");
+    link.href = href;
+    link.download = `mult-portas-rascunho-recuperacao-${authUserId}.json`;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(href), 1000);
+  }
+
+  function archivePendingBackupAndReload() {
+    if (!authUserId || damagedPendingBackup?.userId !== authUserId) return;
+    try {
+      archiveDamagedPendingBackup(localStorage, scopedStorageKey(authUserId, "pending-state-v1"), scopedStorageKey(authUserId, "damaged-pending-archive-v1"), damagedPendingBackup.raw);
+      setDamagedPendingBackup(null);
+      setDataLoadAttempt((attempt) => attempt + 1);
+    } catch (error) {
+      setDataLoadError(error instanceof Error ? error.message : "Não foi possível guardar o rascunho. Os dados anteriores foram preservados.");
+    }
+  }
+
   async function reloadAfterConflict() {
     if (!authUserId || saveStatus !== "conflict") return;
     const sessionEpoch = sessionEpochRef.current;
@@ -2692,6 +2732,29 @@ export default function Home() {
       }
       const data = await readResponseJson<{ user?: EmployeeUser; admin?: boolean; error?: string; migrationWarning?: string }>(response);
       if (!response.ok || (!data.user && data.admin !== true)) throw new Error(data.error || "Não foi possível concluir o acesso.");
+      if (IS_SHARED_API && authMode === "login" && data.user && data.admin !== true) {
+        const expectedSession = sessionStorage.getItem(SHARED_SESSION_KEY);
+        if (!expectedSession) throw new Error("O acesso não pôde ser confirmado nesta aba. Entre novamente.");
+        const sessionEpoch = sessionEpochRef.current;
+        const isCurrent = () => {
+          try { return sessionEpochRef.current === sessionEpoch && sessionStorage.getItem(SHARED_SESSION_KEY) === expectedSession; }
+          catch { return false; }
+        };
+        const recovery = await recoverLegacyEmployeeData(apiFetch, { user: data.user, username: authForm.username, password: authForm.password }, undefined, { isCurrent });
+        if (!isCurrent()) throw new Error("O acesso mudou durante a leitura. Entre novamente para abrir seus dados.");
+        if (recovery?.blockWorkspace) {
+          // A page refresh must also require recovery rather than opening and
+          // later saving an empty workspace over stranded legacy work.
+          try {
+            sessionStorage.setItem(SHARED_SESSION_KEY, JSON.stringify({ ...JSON.parse(expectedSession), legacyRecoveryRequired: true }));
+          } catch {
+            try { await apiFetch("/api/auth/logout", { method: "POST" }); }
+            finally { sessionStorage.removeItem(SHARED_SESSION_KEY); }
+          }
+          throw new Error(recovery.warning || "Os dados anteriores ainda precisam ser transferidos. Entre novamente para tentar concluir.");
+        }
+        if (recovery?.warning) data.migrationWarning = recovery.warning;
+      }
       pendingStateRef.current = null;
       if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current);
       saveTimerRef.current = null;
@@ -3342,6 +3405,10 @@ export default function Home() {
           <strong>{dataLoadError || (authUser ? "Abrindo seu espaço…" : "Carregando acesso…")}</strong>
           <span>{dataLoadError ? "Nenhum dado será sobrescrito enquanto a leitura não for concluída." : "Preparando o Guia Comercial Mult Portas"}</span>
           {dataLoadError && <button className="button primary" type="button" onClick={() => setDataLoadAttempt((current) => current + 1)}>Tentar novamente</button>}
+          {damagedPendingBackup?.userId === authUserId && <>
+            <button className="button secondary" type="button" onClick={downloadDamagedPendingBackup}>Baixar cópia do rascunho</button>
+            <button className="button secondary" type="button" onClick={archivePendingBackupAndReload}>Guardar rascunho e abrir dados salvos</button>
+          </>}
         </section>
       </main>
     );
