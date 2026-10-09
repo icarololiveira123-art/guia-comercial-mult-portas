@@ -5,6 +5,7 @@ import {
   buildMarketingReport, emptyMarketingDay, formatMarketingDate, getMarketingDay,
   marketingCounters, marketingDateKey, MARKETING_HISTORY_LIMIT, MAX_MARKETING_COUNT,
   normalizeMarketingCount, normalizeMarketingDaily, resetMarketingDay, setMarketingCount,
+  hasLegacyMarketingDays, preserveLegacyMarketingCounts,
 } from "../app/lib/marketing-daily.mjs";
 
 test("the daily report turns over at midnight in Brasilia, independently of device timezone", () => {
@@ -28,15 +29,15 @@ test("a new day starts at zero while yesterday's report stays unchanged", () => 
   assert.equal(updated.days[1].date, "2026-10-09");
 });
 
-test("all five counters are independent, editable, bounded integers", () => {
+test("all six counters are independent, editable, bounded integers", () => {
   let state = { days: [] };
   for (let index = 0; index < marketingCounters.length; index++) {
     state = setMarketingCount(state, "2026-10-09", "Ícaro", marketingCounters[index].id, index + 1);
   }
-  assert.deepEqual(marketingCounters.map(({ id }) => state.days[0][id]), [1, 2, 3, 4, 5]);
+  assert.deepEqual(marketingCounters.map(({ id }) => state.days[0][id]), [1, 2, 3, 4, 5, 6]);
   state = setMarketingCount(state, "2026-10-09", "Ícaro", "phone", "18");
   state = setMarketingCount(state, "2026-10-09", "Ícaro", "newContacts", -2);
-  assert.deepEqual(marketingCounters.map(({ id }) => state.days[0][id]), [0, 2, 3, 18, 5]);
+  assert.deepEqual(marketingCounters.map(({ id }) => state.days[0][id]), [0, 2, 3, 18, 5, 6]);
   for (const value of [-1, "", "x", NaN, Infinity, null, [], {}]) assert.equal(normalizeMarketingCount(value), 0);
   assert.equal(normalizeMarketingCount(3.9), 3);
   assert.equal(normalizeMarketingCount(MAX_MARKETING_COUNT + 10), MAX_MARKETING_COUNT);
@@ -45,6 +46,7 @@ test("all five counters are independent, editable, bounded integers", () => {
 test("resetting today never clears other dates or the rest of the employee workspace", () => {
   let state = setMarketingCount({ days: [] }, "2026-10-08", "Ícaro", "newContacts", 8);
   state = setMarketingCount(state, "2026-10-09", "Ícaro", "phone", 4);
+  state = setMarketingCount(state, "2026-10-09", "Ícaro", "inPersonExisting", 2);
   const reset = resetMarketingDay(state, "2026-10-09", "Ícaro");
   const workspace = normalizeEmployeeState({
     marketingDaily: reset, sales: ["qualify"], metrics: { leads: 6 },
@@ -56,15 +58,51 @@ test("resetting today never clears other dates or the rest of the employee works
   assert.deepEqual(workspace.sales, ["qualify"]);
   assert.equal(workspace.metrics.leads, 6);
   assert.equal(state.days[0].phone, 4);
+  assert.equal(state.days[0].inPersonExisting, 2);
 });
 
 test("the copyable summary follows the team's list, including all zero counts", () => {
   let state = setMarketingCount({ days: [] }, "2026-10-09", "Ícaro", "newContacts", 2);
   state = setMarketingCount(state, "2026-10-09", "Ícaro", "interacting", 2);
   assert.equal(buildMarketingReport(state.days[0]), [
-    "Vendedor: Ícaro", "PLATAFORMA", "Contatos novos total: 2", "Contatos interagindo: 2",
-    "Contatos não interagindo: 0", "Contatos via fone: 0", "Atendimentos presenciais: 0",
+    "Vendedora: ÍCARO 09/10", "PLATAFORMA", "Contatos novos total: 2", "Contatos interagindo: 2",
+    "Contatos ñ interagindo: 0", "Contatos via fone: 0", "Atendimentos presencial novos: 0",
+    "Atendimentos presencial já cliente: 0",
   ].join("\n"));
+});
+
+test("the WhatsApp report matches the supplied reference with the day's own name and date", () => {
+  const day = { ...emptyMarketingDay("2026-10-08", "Jordania"), newContacts: 3, interacting: 2, notInteracting: 1, phone: 1, inPerson: 2, inPersonExisting: 2 };
+  assert.equal(buildMarketingReport(day), "Vendedora: JORDANIA 08/10\nPLATAFORMA\nContatos novos total: 3\nContatos interagindo: 2\nContatos ñ interagindo: 1\nContatos via fone: 1\nAtendimentos presencial novos: 2\nAtendimentos presencial já cliente: 2");
+});
+
+test("five-counter history keeps its existing counts and starts the added counter at zero", () => {
+  const old = { days: [{ date: "2026-10-08", seller: "Ícaro", newContacts: 7, phone: 3, inPerson: 4 }] };
+  const before = JSON.stringify(old);
+  const migrated = normalizeMarketingDaily(old);
+  assert.equal(migrated.days[0].inPerson, 4);
+  assert.equal(migrated.days[0].inPersonExisting, 0);
+  assert.equal(migrated.days[0].phone, 3);
+  assert.equal(JSON.stringify(old), before);
+  const changed = setMarketingCount(migrated, "2026-10-08", "Ícaro", "inPersonExisting", 2);
+  const saved = normalizeEmployeeState({ marketingDaily: changed });
+  assert.equal(normalizeEmployeeState(JSON.parse(JSON.stringify(saved))).marketingDaily.days[0].inPersonExisting, 2);
+});
+
+test("an older browser preserves only an omitted sixth count for included dates; explicit zero wins", () => {
+  const saved = { days: [{ ...emptyMarketingDay("2026-10-08", "Ícaro"), inPersonExisting: 9 }, { ...emptyMarketingDay("2026-10-07", "Ícaro"), inPersonExisting: 7 }] };
+  const old = { days: [{ date: "2026-10-08", seller: "Ícaro", phone: 3, inPerson: 4 }] };
+  assert.equal(hasLegacyMarketingDays(old), true);
+  const restored = preserveLegacyMarketingCounts(old, saved);
+  assert.equal(restored.days.length, 1);
+  assert.equal(restored.days[0].inPersonExisting, 9);
+  assert.equal(restored.days[0].phone, 3);
+  const reset = { days: [{ ...old.days[0], inPersonExisting: 0 }] };
+  assert.equal(hasLegacyMarketingDays(reset), false);
+  assert.equal(preserveLegacyMarketingCounts(reset, saved).days[0].inPersonExisting, 0);
+  assert.deepEqual(preserveLegacyMarketingCounts({ days: [] }, saved), { days: [] });
+  const duplicates = { days: [old.days[0], { ...old.days[0], inPersonExisting: 0 }] };
+  assert.equal(preserveLegacyMarketingCounts(duplicates, saved).days[0].inPersonExisting, 9);
 });
 
 test("daily history survives state normalization, rejects invalid dates and retains the newest 366 entries", () => {

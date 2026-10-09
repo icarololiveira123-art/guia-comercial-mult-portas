@@ -233,6 +233,62 @@ test("two computers sign in to the same shared account and retain isolated work 
   assert.equal((await f.store.execute("get_state", { userId: first.user.id }, { tokenHash: await digestText(bob.token), adminVersion: "" })).status, "forbidden");
 });
 
+test("daily marketing keeps the sixth counter across computers and legacy saves while allowing an explicit reset", async () => {
+  const f = fixture();
+  const first = await f.register();
+  const day = { date: "2026-10-09", seller: "Funcionário Teste", inPerson: 2, inPersonExisting: 6 };
+  const saved = await f.call("/api/data", { method: "PUT", token: first.token, body: {
+    state: { sales: ["acolhimento"], marketingDaily: { days: [day] } }, baseRevision: null,
+  } });
+  assert.equal(saved.status, 200);
+  const secondHandler = createSharedApi(f.options);
+  const second = await f.call("/api/auth/login", { method: "POST", body: { username: "alice", password: first.password } }, secondHandler);
+  assert.equal(second.status, 200);
+  const otherComputer = await f.call("/api/data", { token: second.body.token }, secondHandler);
+  assert.equal(otherComputer.body.state.marketingDaily.days[0].inPersonExisting, 6);
+  const legacyState = { ...otherComputer.body.state, marketingDaily: { days: [{ date: day.date, seller: day.seller, inPerson: 3, phone: 2 }] } };
+  const legacySave = await f.call("/api/data", { method: "PUT", token: second.body.token, body: { state: legacyState, baseRevision: saved.body.revision } }, secondHandler);
+  assert.equal(legacySave.status, 200);
+  const retained = await f.call("/api/data", { token: first.token });
+  assert.equal(retained.body.state.marketingDaily.days[0].inPersonExisting, 6);
+  assert.equal(retained.body.state.marketingDaily.days[0].inPerson, 3);
+  assert.deepEqual(retained.body.state.sales, ["acolhimento"]);
+  assert.equal((await f.call("/api/data", { method: "PUT", token: second.body.token, body: { state: legacyState, baseRevision: saved.body.revision } })).status, 200);
+  const staleState = { ...legacyState, marketingDaily: { days: [{ ...legacyState.marketingDaily.days[0], phone: 5 }] } };
+  assert.equal((await f.call("/api/data", { method: "PUT", token: first.token, body: { state: staleState, baseRevision: saved.body.revision } })).status, 409);
+  const reset = await f.call("/api/data", { method: "PUT", token: first.token, body: {
+    state: { ...retained.body.state, marketingDaily: { days: [{ ...retained.body.state.marketingDaily.days[0], inPerson: 0, inPersonExisting: 0 }] } }, baseRevision: legacySave.body.revision,
+  } });
+  assert.equal(reset.status, 200);
+  const cleared = await f.call("/api/data", { token: second.body.token }, secondHandler);
+  assert.equal(cleared.body.state.marketingDaily.days[0].inPerson, 0);
+  assert.equal(cleared.body.state.marketingDaily.days[0].inPersonExisting, 0);
+});
+
+test("legacy marketing compatibility reads cannot replace concurrent work or save after a failed read", async () => {
+  const f = fixture();
+  const first = await f.register();
+  const day = { date: "2026-10-09", seller: "Funcionário Teste", inPersonExisting: 2 };
+  const saved = await f.call("/api/data", { method: "PUT", token: first.token, body: { state: { marketingDaily: { days: [day] } }, baseRevision: null } });
+  assert.equal(saved.status, 200);
+  f.store.beforeExecute = async (action) => {
+    if (action !== "save_state") return;
+    const current = f.store.states.get(first.user.id);
+    current.state.marketingDaily.days[0].inPersonExisting = 7;
+    current.revision = "concurrent-revision";
+  };
+  const legacy = { date: day.date, seller: day.seller, phone: 1 };
+  const conflicted = await f.call("/api/data", { method: "PUT", token: first.token, body: { state: { marketingDaily: { days: [legacy] } }, baseRevision: saved.body.revision } });
+  assert.equal(conflicted.status, 409);
+  assert.equal(f.store.states.get(first.user.id).state.marketingDaily.days[0].inPersonExisting, 7);
+  f.store.beforeExecute = async (action) => { if (action === "get_state") throw new Error("database unavailable"); };
+  const writesBefore = f.store.calls.filter((action) => action === "save_state").length;
+  const failed = await f.call("/api/data", { method: "PUT", token: first.token, body: { state: { marketingDaily: { days: [legacy] } }, baseRevision: "concurrent-revision" } });
+  assert.equal(failed.status, 503);
+  assert.equal(f.store.calls.filter((action) => action === "save_state").length, writesBefore);
+  assert.equal(f.store.states.get(first.user.id).state.marketingDaily.days[0].inPersonExisting, 7);
+});
+
 test("password typos keep the session, profile rotation and removal revoke other devices without losing retained work", async () => {
   const f = fixture();
   const alice = await f.register();

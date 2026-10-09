@@ -1,5 +1,5 @@
-/** @typedef {'newContacts' | 'interacting' | 'notInteracting' | 'phone' | 'inPerson'} MarketingCounter */
-/** @typedef {{ date: string, seller: string, newContacts: number, interacting: number, notInteracting: number, phone: number, inPerson: number }} MarketingDay */
+/** @typedef {'newContacts' | 'interacting' | 'notInteracting' | 'phone' | 'inPerson' | 'inPersonExisting'} MarketingCounter */
+/** @typedef {{ date: string, seller: string, newContacts: number, interacting: number, notInteracting: number, phone: number, inPerson: number, inPersonExisting: number }} MarketingDay */
 /** @typedef {{ days: MarketingDay[] }} MarketingDailyState */
 
 export const MARKETING_HISTORY_LIMIT = 366;
@@ -10,9 +10,10 @@ export const MARKETING_TIME_ZONE = "America/Sao_Paulo";
 export const marketingCounters = [
   { id: "newContacts", label: "Contatos novos total", description: "Clientes novos que entraram na plataforma hoje.", reportLabel: "Contatos novos total" },
   { id: "interacting", label: "Contatos interagindo", description: "Clientes que estão respondendo à conversa.", reportLabel: "Contatos interagindo" },
-  { id: "notInteracting", label: "Contatos não interagindo", description: "Clientes que ainda não responderam.", reportLabel: "Contatos não interagindo" },
+  { id: "notInteracting", label: "Contatos não interagindo", description: "Clientes que ainda não responderam.", reportLabel: "Contatos ñ interagindo" },
   { id: "phone", label: "Contatos via fone", description: "Atendimentos realizados por telefone.", reportLabel: "Contatos via fone" },
-  { id: "inPerson", label: "Atendimentos presenciais", description: "Clientes atendidos pessoalmente.", reportLabel: "Atendimentos presenciais" },
+  { id: "inPerson", label: "Atendimentos presenciais novos", description: "Novos clientes atendidos pessoalmente.", reportLabel: "Atendimentos presencial novos" },
+  { id: "inPersonExisting", label: "Atendimentos presenciais já cliente", description: "Clientes que já compraram e foram atendidos pessoalmente.", reportLabel: "Atendimentos presencial já cliente" },
 ];
 
 /** @param {Date} [now] */
@@ -46,7 +47,7 @@ function sellerName(value) {
 /** @param {string} date @param {string} seller @returns {MarketingDay} */
 export function emptyMarketingDay(date, seller) {
   if (!validDate(date)) throw new Error("Data do marketing diário inválida.");
-  return { date, seller: sellerName(seller), newContacts: 0, interacting: 0, notInteracting: 0, phone: 0, inPerson: 0 };
+  return { date, seller: sellerName(seller), newContacts: 0, interacting: 0, notInteracting: 0, phone: 0, inPerson: 0, inPersonExisting: 0 };
 }
 
 /** @param {unknown} value @returns {MarketingDailyState} */
@@ -61,6 +62,38 @@ export function normalizeMarketingDaily(value) {
     return [day];
   }).sort((a, b) => b.date.localeCompare(a.date)).slice(0, MARKETING_HISTORY_LIMIT);
   return { days };
+}
+
+function firstMarketingDays(value) {
+  const result = new Map();
+  if (!value || typeof value !== "object" || !Array.isArray(value.days)) return result;
+  for (const day of value.days.slice(0, 1_000)) {
+    if (day && typeof day === "object" && validDate(day.date) && !result.has(day.date)) result.set(day.date, day);
+  }
+  return result;
+}
+
+/** Detect a five-counter browser before normalization fills in the sixth zero.
+ * @param {unknown} value */
+export function hasLegacyMarketingDays(value) {
+  return [...firstMarketingDays(value).values()].some((day) => !Object.hasOwn(day, "inPersonExisting"));
+}
+
+/** Preserve only the omitted sixth counter for dates included by an old browser.
+ * Explicit zeros and removing a date remain intentional updates.
+ * @param {unknown} incoming
+ * @param {unknown} saved
+ * @returns {MarketingDailyState} */
+export function preserveLegacyMarketingCounts(incoming, saved) {
+  const rawDays = firstMarketingDays(incoming);
+  const savedDays = new Map(normalizeMarketingDaily(saved).days.map((day) => [day.date, day]));
+  return { days: normalizeMarketingDaily(incoming).days.map((day) => {
+    const raw = rawDays.get(day.date);
+    const previous = savedDays.get(day.date);
+    return previous && raw && !Object.hasOwn(raw, "inPersonExisting")
+      ? { ...day, inPersonExisting: previous.inPersonExisting }
+      : day;
+  }) };
 }
 
 /** @param {MarketingDailyState} state @param {string} date @param {string} seller @returns {MarketingDay} */
@@ -92,7 +125,7 @@ export function formatMarketingDate(date) {
 /** @param {MarketingDay} day */
 export function buildMarketingReport(day) {
   return [
-    `Vendedor: ${sellerName(day.seller)}`,
+    `Vendedora: ${sellerName(day.seller).toLocaleUpperCase("pt-BR")} ${formatMarketingDate(day.date).slice(0, 5)}`,
     "PLATAFORMA",
     ...marketingCounters.map(({ id, reportLabel }) => `${reportLabel}: ${normalizeMarketingCount(day[id])}`),
   ].join("\n");

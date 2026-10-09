@@ -92,12 +92,12 @@ export function MarketingDaily({ seller, state, onChange }: Props) {
           </div>)}
         </div>
         <div className="marketing-board-foot"><p>Use <strong>+ e −</strong> ou digite o número. Cada contador é independente, como na sua listinha.</p>{isToday && <button className="marketing-reset" type="button" disabled={!hasCounts} onClick={() => setConfirmDate(today)}>Zerar contadores de hoje</button>}</div>
-        {isToday && confirmDate === today && <div className="marketing-reset-confirm" role="alert"><div><strong>Zerar a lista de {formatMarketingDate(today)}?</strong><p>Os cinco contadores de hoje voltam para zero. Os outros dias permanecem no histórico.</p></div><div><button className="button" type="button" onClick={() => setConfirmDate("")}>Cancelar</button><button className="button dark" type="button" onClick={clearToday}>Sim, zerar hoje</button></div></div>}
+        {isToday && confirmDate === today && <div className="marketing-reset-confirm" role="alert"><div><strong>Zerar a lista de {formatMarketingDate(today)}?</strong><p>Os seis contadores de hoje voltam para zero. Os outros dias permanecem no histórico.</p></div><div><button className="button" type="button" onClick={() => setConfirmDate("")}>Cancelar</button><button className="button dark" type="button" onClick={clearToday}>Sim, zerar hoje</button></div></div>}
       </section>
 
       <aside className="marketing-summary" aria-labelledby="marketing-summary-title">
         <div><span className="section-kicker">PRONTO PARA COMPARTILHAR</span><h2 id="marketing-summary-title">Sua listinha,<br />sem retrabalho.</h2><p>O mesmo formato de todos os dias, atualizado a cada toque.</p></div>
-        <div className="marketing-message"><span>{formatMarketingDate(date)}</span><textarea ref={reportRef} aria-label="Resumo do marketing diário" readOnly value={report} rows={8} spellCheck={false} /></div>
+        <div className="marketing-message"><textarea ref={reportRef} aria-label="Resumo do marketing diário" readOnly value={report} rows={8} spellCheck={false} /></div>
         <button className="button dark marketing-copy" type="button" onClick={() => { void copyReport(); }}>Copiar resumo <WorkspaceIcon name="message" /></button>
         <p className="marketing-feedback" role="status" aria-live="polite">{feedback}</p>
         <div className="marketing-next-day"><WorkspaceIcon name="calendar" /><p><strong>Amanhã começa do zero.</strong> O novo dia abre uma lista vazia e mantém o dia anterior no histórico. Horário de Brasília.</p></div>

@@ -1,5 +1,6 @@
 import { normalizeEmployeeState, summarizeEmployeeState } from "./lib/state-contract.mjs";
 import { normalizeClientProgress } from "./lib/client-progress.mjs";
+import { hasLegacyMarketingDays, preserveLegacyMarketingCounts } from "./lib/marketing-daily.mjs";
 
 // This module is deliberately portable: no SDK, environment reads or browser
 // storage. The deployment entrypoint injects the private database and secret.
@@ -321,6 +322,13 @@ export function createSharedApi({ store, accessPassword = "", allowedOrigins = [
       if (!Object.hasOwn(body, "baseRevision") || (body.baseRevision !== null && (typeof body.baseRevision !== "string" || body.baseRevision.length > 120))) throw new ApiError(400, "A versão dos dados é inválida.");
       checkSize(body.state, STATE_BYTES);
       const state = normalizeEmployeeState(body.state);
+      if (hasLegacyMarketingDays(body.state.marketingDaily)) {
+        const previous = await execute("get_state", { userId: auth.user.id }, auth);
+        state.marketingDaily = preserveLegacyMarketingCounts(body.state.marketingDaily, previous.state?.marketingDaily);
+        // Keep the caller's original revision: a concurrent update must still
+        // conflict rather than be replaced after this compatibility read.
+      }
+      checkSize(state, STATE_BYTES);
       const clientState = Object.hasOwn(body, "clientState") ? normalizeProgress(body.clientState) : undefined;
       checkSignal(request);
       const result = await execute("save_state", {
