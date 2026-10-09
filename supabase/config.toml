@@ -1,0 +1,7 @@
+project_id = "guia-comercial-mult-portas"
+
+[functions.mult-portas-api]
+# Login is anonymous; all protected paths validate our opaque bearer sessions
+# against the private database. They intentionally do not use Supabase Auth JWTs.
+verify_jwt = false
+entrypoint = "./functions/mult-portas-api/index.ts"

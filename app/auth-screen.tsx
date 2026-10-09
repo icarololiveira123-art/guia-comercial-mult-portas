@@ -21,6 +21,7 @@ type AuthScreenProps = {
   error: string;
   busy: boolean;
   setupAvailable: boolean;
+  sharedAccess?: boolean;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 };
 
@@ -28,7 +29,7 @@ type AuthScreenProps = {
  * Authentication UI is intentionally kept outside the guide workspace.
  * Guide content can evolve without changing this access boundary.
  */
-export function AuthScreen({ mode, setMode, form, setForm, error, busy, setupAvailable, onSubmit }: AuthScreenProps) {
+export function AuthScreen({ mode, setMode, form, setForm, error, busy, setupAvailable, sharedAccess = false, onSubmit }: AuthScreenProps) {
   const isRegister = mode === "register";
   const isSetup = mode === "setup";
   const isGithubPages = (import.meta as ImportMeta & { env?: Record<string, string> }).env?.VITE_GITHUB_PAGES === "true";
@@ -80,7 +81,7 @@ export function AuthScreen({ mode, setMode, form, setForm, error, busy, setupAva
             Cadastro
           </button>
         </div>
-        {isGithubPages && setupAvailable && mode !== "register" && form.username.trim().toLocaleLowerCase("pt-BR") === "admin" && <button type="button" className={"access-admin-link" + (isSetup ? " active" : "")} aria-pressed={isSetup} onClick={() => setMode("setup")}>Configurar este acesso <span aria-hidden="true">→</span></button>}
+        {isGithubPages && !sharedAccess && setupAvailable && mode !== "register" && form.username.trim().toLocaleLowerCase("pt-BR") === "admin" && <button type="button" className={"access-admin-link" + (isSetup ? " active" : "")} aria-pressed={isSetup} onClick={() => setMode("setup")}>Configurar este acesso <span aria-hidden="true">→</span></button>}
 
         <form className="auth-form" onSubmit={onSubmit} aria-describedby={error ? "auth-error" : undefined}>
           {isRegister && (
@@ -119,7 +120,9 @@ export function AuthScreen({ mode, setMode, form, setForm, error, busy, setupAva
           </button>
         </form>
 
-        <div className="auth-note"><span>✓</span><p>{isGithubPages
+        <div className="auth-note"><span>✓</span><p>{sharedAccess
+          ? "Seus registros e seu progresso acompanham sua conta em outros computadores. Cada funcionário acessa seu próprio espaço."
+          : isGithubPages
           ? "Cada conta guarda seus registros neste navegador e aparelho. Em outro aparelho, os cadastros e o progresso não aparecem automaticamente. Este login local não protege dados sensíveis."
           : "Ao sair, somente a sessão deste guia será encerrada. O acesso ao restante da plataforma permanece como está."}</p></div>
       </section>

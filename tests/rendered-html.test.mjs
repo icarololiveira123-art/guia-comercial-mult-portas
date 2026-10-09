@@ -43,12 +43,12 @@ test("robots policy keeps the internal guide out of search indexes", async () =>
   assert.match(robots, /^User-agent: \*\nDisallow: \/\s*$/);
 });
 
-test("GitHub Pages builds the complete guide with local accounts and lessons at the repository path", async () => {
+test("GitHub Pages builds the complete guide and preserves legacy accounts at the repository path", async () => {
   const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
   assert.equal(packageJson.scripts["build:github"], "node scripts/build-github-integrated.mjs");
 
   const root = new URL("../", import.meta.url);
-  await execFileAsync(process.execPath, ["scripts/build-github-integrated.mjs"], { cwd: root });
+  await execFileAsync(process.execPath, ["scripts/build-github-integrated.mjs"], { cwd: root, env: { ...process.env, VITE_SHARED_API_URL: "" } });
   const html = await readFile(new URL("../dist-pages/index.html", import.meta.url), "utf8");
   const assetNames = await readdir(new URL("../dist-pages/assets/", import.meta.url));
   const scriptName = assetNames.find((name) => /^index-.*\.js$/.test(name));
@@ -71,4 +71,23 @@ test("GitHub Pages builds the complete guide with local accounts and lessons at 
     const pdf = await readFile(new URL(`../dist-pages${lesson.href}`, import.meta.url));
     assert.equal(pdf.subarray(0, 5).toString(), "%PDF-", lesson.href);
   }
+});
+
+test("the shared Pages build keeps the GitHub address and includes central login, migration and progress without a server credential", async () => {
+  // Build-only endpoint fixture; no network requests or real project are used.
+  const endpoint = "https://abcdefghijklmnopqrst.supabase.co/functions/v1/mult-portas-api";
+  await execFileAsync(process.execPath, ["scripts/build-github-integrated.mjs"], {
+    cwd: new URL("../", import.meta.url),
+    env: { ...process.env, VITE_SHARED_API_URL: endpoint },
+  });
+  const html = await readFile(new URL("../dist-pages/index.html", import.meta.url), "utf8");
+  const names = await readdir(new URL("../dist-pages/assets/", import.meta.url));
+  const script = names.find((name) => /^index-.*\.js$/.test(name));
+  const app = await readFile(new URL(`../dist-pages/assets/${script}`, import.meta.url), "utf8");
+  assert.match(html, /src="\/guia-comercial-mult-portas\/assets\//);
+  for (const text of [endpoint, "mult-portas-shared-session-v1", "Seus registros e seu progresso acompanham sua conta", "Sincronizar contas deste aparelho", "Guardar rascunho e carregar atualização", "Dados separados por funcionário", "Marketing diário"]) {
+    assert.ok(app.includes(text), `Shared build missing ${text}`);
+  }
+  assert.doesNotMatch(app, /SUPABASE_SERVICE_ROLE_KEY|SUPABASE_SECRET_KEYS|sb_secret_|MP_ACCESS_PASSWORD|local-access-policy/);
+  assert.doesNotMatch(html + app, /http-equiv=["']refresh|window\.location\.(?:replace|assign)|chatgpt\.site/i);
 });

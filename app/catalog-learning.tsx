@@ -1,6 +1,8 @@
 "use client";
 
 import { type ReactNode, useEffect, useRef, useState } from "react";
+import { sharedApiBaseUrl } from "./lib/shared-api-config.mjs";
+import { CLIENT_PROGRESS_EVENT } from "./lib/client-progress.mjs";
 import { beginnerGlossary, brimakDocumentLessons, learningByBrand, materialGuide, measurementMethod, measurementTypes, qualityMethod, readingChecklist } from "./lib/catalog-learning.mjs";
 
 type Brand = keyof typeof learningByBrand;
@@ -28,16 +30,16 @@ const stages: { id: Stage; label: string; summary: string }[] = [
 ];
 
 function progressStorageKey(userId: number, brand: Brand) {
-  return `mult-portas-guia-learning-v1-user-${userId}-brand-${brand}`;
+  return `${sharedApiBaseUrl ? "mult-portas-shared" : "mult-portas-guia"}-learning-v1-user-${userId}-brand-${brand}`;
 }
 
 function sheetStorageKey(userId: number, brand: Brand) {
-  return `mult-portas-guia-study-sheet-v1-user-${userId}-brand-${brand}`;
+  return `${sharedApiBaseUrl ? "mult-portas-shared" : "mult-portas-guia"}-study-sheet-v1-user-${userId}-brand-${brand}`;
 }
 
-function readStudySheet(key: string): StudySheet {
+function readStudySheet(key: string, sharedValue?: unknown): StudySheet {
   try {
-    const stored: unknown = JSON.parse(localStorage.getItem(key) ?? "null");
+    const stored: unknown = sharedValue ?? JSON.parse(localStorage.getItem(key) ?? "null");
     if (!stored || typeof stored !== "object" || Array.isArray(stored)) return { ...emptySheet };
     return Object.fromEntries(studyFields.map(({ id }) => [id, typeof (stored as Record<string, unknown>)[id] === "string" ? String((stored as Record<string, unknown>)[id]).slice(0, 1000) : ""])) as StudySheet;
   } catch {
@@ -52,12 +54,10 @@ function pagesAssetHref(href: string) {
     : href;
 }
 
-function readProgress(key: string, brand: Brand): LearningProgress {
+function readProgress(key: string, brand: Brand, sharedValue?: unknown): LearningProgress {
   const empty: LearningProgress = { stage: "basics", answers: {} };
   try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return empty;
-    const parsed: unknown = JSON.parse(raw);
+    const parsed: unknown = sharedValue ?? JSON.parse(localStorage.getItem(key) ?? "null");
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return empty;
     const record = parsed as { stage?: unknown; answers?: unknown };
     const stage = stages.some((item) => item.id === record.stage) ? record.stage as Stage : "basics";
@@ -138,13 +138,15 @@ function FichesLink({ children, onOpenFiches }: { children: ReactNode; onOpenFic
     : <a href="#catalog-results">{children}</a>;
 }
 
-export function CatalogLearning({ brand, brandName, userId, onOpenFiches }: { brand: Brand; brandName: string; userId: number; onOpenFiches?: () => void }) {
+export function CatalogLearning({ brand, brandName, userId, initialProgress, onOpenFiches }: { brand: Brand; brandName: string; userId: number; initialProgress?: { learning?: unknown; studySheet?: unknown }; onOpenFiches?: () => void }) {
   const storageKey = progressStorageKey(userId, brand);
   const sheetKey = sheetStorageKey(userId, brand);
-  const [initialProgress] = useState(() => readProgress(storageKey, brand));
-  const [stage, setStage] = useState<Stage>(initialProgress.stage);
-  const [answers, setAnswers] = useState<Record<string, number>>(initialProgress.answers);
-  const [sheet, setSheet] = useState<StudySheet>(() => readStudySheet(sheetKey));
+  const [startingProgress] = useState(() => readProgress(storageKey, brand, initialProgress?.learning));
+  const [stage, setStage] = useState<Stage>(startingProgress.stage);
+  const [answers, setAnswers] = useState<Record<string, number>>(startingProgress.answers);
+  const [sheet, setSheet] = useState<StudySheet>(() => readStudySheet(sheetKey, initialProgress?.studySheet));
+  const savedProgressRef = useRef(JSON.stringify(startingProgress));
+  const savedSheetRef = useRef(JSON.stringify(sheet));
   const [hasNavigated, setHasNavigated] = useState(false);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const guide = learningByBrand[brand];
@@ -156,20 +158,28 @@ export function CatalogLearning({ brand, brandName, userId, onOpenFiches }: { br
   const questionCount = brand === "brimak" ? 2 + brimakDocumentLessons.length : 2;
 
   useEffect(() => {
+    const serialized = JSON.stringify({ stage, answers } satisfies LearningProgress);
+    if (serialized === savedProgressRef.current) return;
+    savedProgressRef.current = serialized;
     try {
-      localStorage.setItem(storageKey, JSON.stringify({ stage, answers } satisfies LearningProgress));
+      localStorage.setItem(storageKey, serialized);
     } catch {
       // The lesson still works when this browser does not allow local storage.
     }
-  }, [storageKey, stage, answers]);
+    if (sharedApiBaseUrl) window.dispatchEvent(new CustomEvent(CLIENT_PROGRESS_EVENT, { detail: { userId, brand, field: "learning", value: { stage, answers } } }));
+  }, [storageKey, stage, answers, userId, brand]);
 
   useEffect(() => {
+    const serialized = JSON.stringify(sheet);
+    if (serialized === savedSheetRef.current) return;
+    savedSheetRef.current = serialized;
     try {
-      localStorage.setItem(sheetKey, JSON.stringify(sheet));
+      localStorage.setItem(sheetKey, serialized);
     } catch {
       // Keep the editable sheet available for this session when storage is blocked.
     }
-  }, [sheetKey, sheet]);
+    if (sharedApiBaseUrl) window.dispatchEvent(new CustomEvent(CLIENT_PROGRESS_EVENT, { detail: { userId, brand, field: "studySheet", value: sheet } }));
+  }, [sheetKey, sheet, userId, brand]);
 
   useEffect(() => { if (hasNavigated) headingRef.current?.focus(); }, [stage, hasNavigated]);
 
