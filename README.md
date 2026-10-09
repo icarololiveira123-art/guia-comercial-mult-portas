@@ -31,6 +31,8 @@ As aulas são material de estudo. Confirme especificações, composição, medid
 
 ## Contas e progresso no GitHub Pages
 
+A publicação verifica dependências com `npm run audit:dependencies`. Sharp e source-map-js estão fixados em versões corrigidas. Enquanto braces 3.0.3 não tem correção oficial para GHSA-vfj7-8cjw-p6xm, o postinstall limita a profundidade dos quatro pontos de entrada recursivos. A auditoria verifica integralmente os arquivos e a proteção instalada antes de aceitar apenas esse alerta específico, incluindo suas dependências indiretas. Qualquer outro alerta alto/crítico, arquivo alterado ou falha de auditoria bloqueia a publicação. Os testes exercitam padrões normais, padrões profundos e ASTs cíclicas. Retire a mitigação quando houver uma versão oficial corrigida e verificada.
+
 É possível criar um login para cada funcionário. Os registros, pendências, respostas das aulas e a última seção ou etapa aberta são salvos **separadamente por conta neste navegador e aparelho**. Ao sair e entrar novamente na mesma conta, o guia retoma esse progresso. Entrar em outra conta carrega os dados dessa outra pessoa.
 
 O GitHub Pages publica arquivos estáticos e não executa o servidor de autenticação nem um banco compartilhado. Por isso, as contas locais **não sincronizam entre aparelhos ou navegadores**, e apagar os dados do navegador pode apagar cadastros e progresso. A tela de login local organiza a experiência, mas **não protege informações sensíveis** contra quem tem acesso ao aparelho ou ao armazenamento do site. Evite registrar dados sensíveis de clientes nessa versão. A gestão central de contas da equipe exige um servidor. No Pages, o treinador usa respostas guiadas, sem a API de IA.

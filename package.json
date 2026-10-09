@@ -16,7 +16,9 @@
     "validate:artifact": "bash scripts/validate-artifact.sh",
     "lint": "bash scripts/sites-env.sh -- eslint . --ignore-pattern dist --ignore-pattern dist-pages --ignore-pattern .next",
     "typecheck": "bash scripts/sites-env.sh -- tsc --noEmit --incremental false",
-    "db:generate": "bash scripts/sites-env.sh -- drizzle-kit generate"
+    "db:generate": "bash scripts/sites-env.sh -- drizzle-kit generate",
+    "postinstall": "node scripts/patch-braces.mjs",
+    "audit:dependencies": "node scripts/audit-dependencies.mjs"
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",
@@ -47,7 +49,9 @@
     "image-size": "2.0.4",
     "@esbuild-kit/core-utils": {
       "esbuild": "0.25.12"
-    }
+    },
+    "sharp": "0.35.5",
+    "source-map-js": "1.2.2"
   },
   "type": "module",
   "displayName": "Guia Comercial Mult Portas"
