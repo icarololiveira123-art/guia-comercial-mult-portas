@@ -8,11 +8,11 @@ export async function readAccessSession(request, signal) {
     throw new Error(typeof payload?.error === "string" && payload.error ? payload.error : fallback);
   }
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error(fallback);
-  if (payload.admin === true) return { user: null, admin: true };
-  if (payload.user === null && payload.admin === false) return { user: null, admin: false };
+  if (payload.admin === true) return { user: null, admin: true, workspaceAccess: false };
+  if (payload.user === null && payload.admin === false) return { user: null, admin: false, workspaceAccess: false };
   const user = payload.user;
   if (!user || !Number.isSafeInteger(user.id) || user.id <= 0
     || typeof user.username !== "string" || typeof user.displayName !== "string"
     || !["Araraquara", "São Carlos"].includes(user.branch)) throw new Error(fallback);
-  return { user, admin: false };
+  return { user, admin: false, workspaceAccess: payload.workspaceAccess === true };
 }

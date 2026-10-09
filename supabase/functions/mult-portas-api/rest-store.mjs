@@ -5,13 +5,15 @@ export function createRestStore({ url, serviceKey, fetchImpl = fetch }) {
   if (base.protocol !== "https:" && !["localhost", "127.0.0.1"].includes(base.hostname)) throw new Error("A secure database URL is required.");
   if (typeof serviceKey !== "string" || !serviceKey) throw new Error("A server service key is required.");
   const endpoint = new URL("/rest/v1/rpc/mp_shared_store", base).href;
+  const workspaceEndpoint = new URL("/rest/v1/rpc/mp_shared_workspace_access", base).href;
+  const workspaceActions = new Set(["workspace_open", "workspace_read", "workspace_save"]);
   return {
     async execute(action, payload = {}, auth = null) {
       // New sb_secret keys are API keys, not JWT bearer tokens. Legacy service
       // JWTs need both headers for compatibility with the PostgREST gateway.
       const headers = { "Content-Type": "application/json", apikey: serviceKey };
       if (!serviceKey.startsWith("sb_secret_")) headers.Authorization = `Bearer ${serviceKey}`;
-      const response = await fetchImpl(endpoint, {
+      const response = await fetchImpl(workspaceActions.has(action) ? workspaceEndpoint : endpoint, {
         method: "POST", headers, redirect: "error", cache: "no-store",
         body: JSON.stringify({ p_action: action, p_payload: payload,
           p_auth: auth ? { tokenHash: auth.tokenHash, adminVersion: auth.adminVersion, now: auth.now } : null }),

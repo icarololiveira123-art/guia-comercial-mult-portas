@@ -11,8 +11,8 @@ test("session checks preserve valid accounts and recognize an expired session", 
     assert.equal(init.signal, controller.signal);
     return Response.json({ user, admin: false });
   }, controller.signal);
-  assert.deepEqual(loaded, { user, admin: false });
-  assert.deepEqual(await readAccessSession(async () => Response.json({ user: null, admin: false })), { user: null, admin: false });
+  assert.deepEqual(loaded, { user, admin: false, workspaceAccess: false });
+  assert.deepEqual(await readAccessSession(async () => Response.json({ user: null, admin: false })), { user: null, admin: false, workspaceAccess: false });
 });
 
 test("unavailable or malformed session responses report a failure instead of hiding it", async () => {
@@ -103,7 +103,7 @@ test("admin policy delegates trusted frontend checks and keeps the password serv
   assert.match(source, /ADMIN_PASSWORD\s*=\s*runtimeEnv\.ADMIN_PASSWORD/);
   assert.match(source, /export function isAdminRequest/);
   assert.match(source, /isTrustedAppRequest\(request\)/);
-  assert.doesNotMatch(source, /ADMIN_PASSWORD\s*=\s*["']admin["']/);
+  assert.doesNotMatch(source, /ADMIN_PASSWORD\s*=\s*["'][^"']+["']/);
 
   const securitySource = await readFile(new URL("../app/api/_security.ts", import.meta.url), "utf8");
   assert.doesNotMatch(securitySource, /github\.io/);
@@ -157,7 +157,7 @@ test("admin login rejects an unapproved web origin", async () => {
         Origin: "https://example.invalid",
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ username: "admin", password: "admin" }),
+      body: JSON.stringify({ username: "admin", password: crypto.randomUUID() }),
     }),
     { ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) } },
     executionContext(),

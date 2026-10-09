@@ -233,6 +233,12 @@ export function createSharedApi({ store, accessPassword = "", allowedOrigins = [
     if (auth?.session.role !== "admin") throw new ApiError(403, "Acesso não autorizado.");
   }
 
+  function accountId(value) {
+    const id = Number(value);
+    if (!Number.isSafeInteger(id) || id <= 0) throw new ApiError(400, "A conta selecionada é inválida.");
+    return id;
+  }
+
   async function newSession(role, user, version, clock) {
     const token = toBase64(crypto.getRandomValues(new Uint8Array(32))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
     const expiresAt = new Date(clock.getTime() + SESSION_HOURS[role] * 3_600_000).toISOString();
@@ -311,10 +317,27 @@ export function createSharedApi({ store, accessPassword = "", allowedOrigins = [
       }, auth);
       return { value: await newSession("user", updated.user, updated.user.sessionVersion, clock) };
     }
-    if (route === "/api/data" && ["GET", "PUT"].includes(method)) {
-      if (auth.session.role !== "user") throw new ApiError(403, "Acesso não autorizado.");
+    const accessMatch = /^\/api\/admin\/users\/([1-9]\d*)\/access$/.exec(route);
+    if (accessMatch && ["GET", "POST"].includes(method)) {
+      requireAdmin(auth);
+      const rawResult = await store.execute("workspace_open", { userId: accountId(accessMatch[1]), recordAccess: method === "POST" }, auth);
+      if (method === "GET" && rawResult?.status === "not-found") return { value: { user: null, admin: true, workspaceAccess: false } };
+      const result = requireResult(rawResult);
+      return { value: { user: publicUser(result.user), admin: false, workspaceAccess: true } };
+    }
+    if (route === "/api/admin/access/end" && method === "POST") {
+      requireAdmin(auth);
+      return { value: { user: null, admin: true, workspaceAccess: false } };
+    }
+    const workspaceMatch = /^\/api\/admin\/users\/([1-9]\d*)\/workspace$/.exec(route);
+    if ((route === "/api/data" || workspaceMatch) && ["GET", "PUT"].includes(method)) {
+      if (workspaceMatch) requireAdmin(auth);
+      else if (auth.session.role !== "user") throw new ApiError(403, "Acesso não autorizado.");
+      const userId = workspaceMatch ? accountId(workspaceMatch[1]) : auth.user.id;
+      const readAction = workspaceMatch ? "workspace_read" : "get_state";
+      const saveAction = workspaceMatch ? "workspace_save" : "save_state";
       if (method === "GET") {
-        const result = await execute("get_state", { userId: auth.user.id }, auth);
+        const result = await execute(readAction, { userId }, auth);
         return { value: { state: result.state ?? null, revision: result.revision ?? null, clientState: result.clientState ?? { schemaVersion: 1 } } };
       }
       const body = await readJson(request, STATE_BYTES + PROGRESS_BYTES + 10_000);
@@ -323,7 +346,7 @@ export function createSharedApi({ store, accessPassword = "", allowedOrigins = [
       checkSize(body.state, STATE_BYTES);
       const state = normalizeEmployeeState(body.state);
       if (hasLegacyMarketingDays(body.state.marketingDaily)) {
-        const previous = await execute("get_state", { userId: auth.user.id }, auth);
+        const previous = await execute(readAction, { userId }, auth);
         state.marketingDaily = preserveLegacyMarketingCounts(body.state.marketingDaily, previous.state?.marketingDaily);
         // Keep the caller's original revision: a concurrent update must still
         // conflict rather than be replaced after this compatibility read.
@@ -331,8 +354,8 @@ export function createSharedApi({ store, accessPassword = "", allowedOrigins = [
       checkSize(state, STATE_BYTES);
       const clientState = Object.hasOwn(body, "clientState") ? normalizeProgress(body.clientState) : undefined;
       checkSignal(request);
-      const result = await execute("save_state", {
-        userId: auth.user.id, state, baseRevision: body.baseRevision,
+      const result = await execute(saveAction, {
+        userId, state, baseRevision: body.baseRevision,
         ...(clientState === undefined ? {} : { clientState }),
         revision: `${clock.toISOString()}|${crypto.randomUUID()}`, updatedAt: clock.toISOString(),
       }, auth);

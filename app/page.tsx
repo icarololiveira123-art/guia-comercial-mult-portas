@@ -1552,6 +1552,7 @@ export default function Home() {
   const [fairView, setFairView] = useState<"compose" | "preview" | "examples">("compose");
   const [authUser, setAuthUser] = useState<EmployeeUser | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [workspaceAccess, setWorkspaceAccess] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
   const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [setupAvailable, setSetupAvailable] = useState(false);
@@ -1688,6 +1689,7 @@ export default function Home() {
     // A request from the previous account may still finish after the next
     // account signs in. Its result must not touch the new workspace.
     sessionEpochRef.current += 1;
+    setWorkspaceAccess(false);
     progressStateRef.current = { schemaVersion: 1 };
     progressSnapshotRef.current = "";
     setConflictDraftAvailable(false);
@@ -1908,6 +1910,7 @@ export default function Home() {
           }
         }
         setIsAdmin(data.admin === true);
+        setWorkspaceAccess(data.workspaceAccess === true);
         setAuthUser(data.user && typeof data.user.id === "number" ? data.user : null);
         setAuthLoading(false);
       })
@@ -2776,6 +2779,58 @@ export default function Home() {
     }
   }
 
+  async function handleOpenWorkspace(userId: number) {
+    setAuthError("");
+    const response = await apiFetch(`/api/admin/users/${userId}/access`, { method: "POST" });
+    const data = await readResponseJson<{ user?: EmployeeUser; admin?: boolean; workspaceAccess?: boolean; error?: string }>(response);
+    if (!response.ok || !data.user || data.user.id !== userId || data.admin !== false || data.workspaceAccess !== true) {
+      throw new Error(data.error || "Não foi possível abrir o espaço do funcionário.");
+    }
+    pendingStateRef.current = null;
+    if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = null;
+    resetEmployeeWorkspace();
+    setHydrated(false);
+    setDataLoaded(false);
+    setDataLoadError("");
+    revisionRef.current = null;
+    setProfileOpen(false);
+    setIsAdmin(false);
+    setWorkspaceAccess(true);
+    setAuthUser(data.user);
+    setSection("overview");
+  }
+
+  async function handleReturnToPanel() {
+    if (authBusy) return;
+    setAuthBusy(true);
+    setAuthError("");
+    try {
+      if (!(await flushPendingState())) throw new Error("Salve suas alterações antes de voltar ao painel. Seus registros foram mantidos nesta conta.");
+      const response = await apiFetch("/api/admin/access/end", { method: "POST" });
+      const data = await readResponseJson<{ admin?: boolean; workspaceAccess?: boolean; error?: string }>(response);
+      if (!response.ok || data.admin !== true || data.workspaceAccess !== false) throw new Error(data.error || "Não foi possível voltar ao painel.");
+      pendingStateRef.current = null;
+      if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+      resetEmployeeWorkspace();
+      setIsAdmin(true);
+      setAuthUser(null);
+      setProfileOpen(false);
+      setHydrated(false);
+      setDataLoaded(false);
+      setDataLoadError("");
+      revisionRef.current = null;
+      setSection("overview");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Não foi possível voltar ao painel.";
+      setAuthError(message);
+      showToast(message, "error");
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
   async function handleLogout() {
     setAuthBusy(true);
     setAuthError("");
@@ -3405,6 +3460,7 @@ export default function Home() {
           <strong>{dataLoadError || (authUser ? "Abrindo seu espaço…" : "Carregando acesso…")}</strong>
           <span>{dataLoadError ? "Nenhum dado será sobrescrito enquanto a leitura não for concluída." : "Preparando o Guia Comercial Mult Portas"}</span>
           {dataLoadError && <button className="button primary" type="button" onClick={() => setDataLoadAttempt((current) => current + 1)}>Tentar novamente</button>}
+          {workspaceAccess && <button className="button secondary" type="button" disabled={authBusy} onClick={() => void handleReturnToPanel()}>Voltar ao painel</button>}
           {damagedPendingBackup?.userId === authUserId && <>
             <button className="button secondary" type="button" onClick={downloadDamagedPendingBackup}>Baixar cópia do rascunho</button>
             <button className="button secondary" type="button" onClick={archivePendingBackupAndReload}>Guardar rascunho e abrir dados salvos</button>
@@ -3418,7 +3474,7 @@ export default function Home() {
     return <AuthScreen mode={authMode} setMode={(mode) => { setAuthMode(mode); setAuthError(""); }} form={authForm} setForm={setAuthForm} error={authError} busy={authBusy} setupAvailable={setupAvailable} sharedAccess={IS_SHARED_API} onSubmit={handleAuthSubmit} />;
   }
 
-  if (isAdmin) return <AccountCenter onLogout={handleLogout} externalError={authError} isGithubPages={LOCAL_STORAGE_MODE} sharedAccess={IS_SHARED_API} request={apiFetch} />;
+  if (isAdmin) return <AccountCenter onLogout={handleLogout} onOpenWorkspace={IS_SHARED_API ? handleOpenWorkspace : undefined} externalError={authError} isGithubPages={LOCAL_STORAGE_MODE} sharedAccess={IS_SHARED_API} request={apiFetch} />;
   if (!authUser) return null;
 
   const currentGroup = workspaceGroups.find((group) => group.sections.includes(section)) ?? workspaceGroups[0];
@@ -3426,7 +3482,7 @@ export default function Home() {
   const firstName = authUser.displayName.trim().split(/\s+/)[0];
 
   return (
-    <main className="workspace-app">
+    <main className="workspace-app" inert={authBusy || undefined}>
       <a className="workspace-skip" href="#workspace-main">Ir para o conteúdo</a>
       <header className="workspace-masthead">
         <button className="workspace-brand" type="button" onClick={() => navigate("overview")} aria-label="Mult Portas, página inicial">
@@ -3439,8 +3495,8 @@ export default function Home() {
         <div className="workspace-user">
           <span className="workspace-avatar">{firstName.slice(0, 1).toUpperCase()}</span>
           <span className="workspace-user-copy"><strong>{firstName}</strong><small>{authUser.branch}</small></span>
-          <button className="profile-button" type="button" ref={profileTriggerRef} onClick={openProfileEditor}>Meu perfil</button>
-          <button className="logout-button" type="button" onClick={handleLogout}>Sair</button>
+          {workspaceAccess ? <button className="profile-button" type="button" disabled={authBusy} onClick={() => void handleReturnToPanel()}>{authBusy ? "Aguarde…" : "Voltar ao painel"}</button> : <button className="profile-button" type="button" ref={profileTriggerRef} onClick={openProfileEditor}>Meu perfil</button>}
+          <button className="logout-button" type="button" disabled={authBusy} onClick={handleLogout}>Sair</button>
         </div>
       </header>
       <div className="workspace-toolbar">
@@ -3455,6 +3511,8 @@ export default function Home() {
           <span>{today}</span>
         </div>
       </div>
+
+      {workspaceAccess && <div className="workspace-access-notice" role="status"><WorkspaceIcon name="work" /><span>Espaço de <strong>{authUser.displayName}</strong><small>@{authUser.username} · As alterações ficam salvas nesta conta.</small></span></div>}
 
       <section className="workspace-content" id="workspace-main" tabIndex={-1}>
 

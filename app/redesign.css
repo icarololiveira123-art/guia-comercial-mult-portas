@@ -403,6 +403,13 @@ body { background: var(--bg); color: var(--ink); font-family: Inter, ui-sans-ser
 .admin-person-actions { display: flex; justify-content: flex-end; gap: 5px; margin-top: 8px; padding-top: 8px; border-top: 1px solid #e3e8dd; }
 .admin-person-actions button { min-height: 32px; border-radius: 5px; font-size: 11px; }
 .admin-person-actions .account-edit { border-color: #c9d9c6; color: #285449; background: #f1f6ec; }
+.admin-person-actions .account-open-workspace { display: inline-flex; align-items: center; justify-content: center; gap: 8px; margin-right: auto; padding: 8px 12px; color: #fff; background: #285449; }
+.admin-person-actions .account-open-workspace:hover:not(:disabled) { background: #19392f; }
+.admin-person-actions button:disabled { opacity: .5; cursor: default; }
+.workspace-access-notice { display: flex; align-items: center; gap: 12px; padding: 12px clamp(16px, 3vw, 40px); border-bottom: 1px solid #d4dfca; color: #285449; background: #f0f4e9; font-size: 13px; }
+.workspace-access-notice svg { width: 20px; height: 20px; flex: 0 0 auto; }
+.workspace-access-notice span { min-width: 0; overflow-wrap: anywhere; }
+.workspace-access-notice small { display: block; margin-top: 3px; color: #536559; font-size: 11px; }
 .admin-inspector .account-editor, .admin-inspector .account-detail { margin: 0; padding: 0; border: 0; background: none; }
 .admin-inspector .account-detail-head { padding-bottom: 15px; border-bottom: 1px solid #e1e5de; }
 .admin-inspector .account-editor-form :is(input,select) { border-color: #cdd9cb; color: #263d2d; background: #fff; }

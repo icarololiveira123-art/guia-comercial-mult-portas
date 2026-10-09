@@ -36,6 +36,7 @@ type AccountEditorState = {
 };
 type AccountCenterProps = {
   onLogout: () => Promise<void>;
+  onOpenWorkspace?: (userId: number) => Promise<void>;
   externalError?: string;
   isGithubPages: boolean;
   sharedAccess?: boolean;
@@ -77,7 +78,7 @@ async function responseJson<T>(response: Response): Promise<T> {
   }
 }
 
-export function AccountCenter({ onLogout, externalError, isGithubPages, sharedAccess = false, request }: AccountCenterProps) {
+export function AccountCenter({ onLogout, onOpenWorkspace, externalError, isGithubPages, sharedAccess = false, request }: AccountCenterProps) {
   const [accounts, setAccounts] = useState<AccountRecord[]>([]);
   const [selectedAccount, setSelectedAccount] = useState<AccountRecord | null>(null);
   const [selectedState, setSelectedState] = useState<Record<string, unknown> | null>(null);
@@ -94,6 +95,8 @@ export function AccountCenter({ onLogout, externalError, isGithubPages, sharedAc
   const [notice, setNotice] = useState("");
   const [importBusy, setImportBusy] = useState(false);
   const [importProgress, setImportProgress] = useState("");
+  const [openingId, setOpeningId] = useState<number | null>(null);
+  const workspaceOpeningRef = useRef(false);
   const detailsRequestRef = useRef<{ id: number; controller: AbortController } | null>(null);
   const detailsRequestIdRef = useRef(0);
 
@@ -160,6 +163,23 @@ export function AccountCenter({ onLogout, externalError, isGithubPages, sharedAc
     setSelectedAccount(null);
     setSelectedState(null);
     setSelectedSummary(emptySummary);
+  }
+
+  async function openWorkspace(account: AccountRecord) {
+    if (!onOpenWorkspace || workspaceOpeningRef.current) return;
+    workspaceOpeningRef.current = true;
+    setOpeningId(account.id);
+    setError("");
+    setNotice("");
+    detailsRequestRef.current?.controller.abort();
+    try {
+      await onOpenWorkspace(account.id);
+    } catch (openError) {
+      setError(openError instanceof Error ? openError.message : "Não foi possível abrir o espaço do funcionário.");
+    } finally {
+      workspaceOpeningRef.current = false;
+      setOpeningId(null);
+    }
   }
 
   function startCreate() {
@@ -288,7 +308,7 @@ export function AccountCenter({ onLogout, externalError, isGithubPages, sharedAc
             <button className="button account-refresh" type="button" onClick={() => void loadAccounts()} disabled={loading} aria-busy={loading}>
               <span aria-hidden="true">{loading ? "…" : "↻"}</span>{loading ? "Atualizando…" : "Atualizar"}
             </button>
-            <button className="logout-button account-logout" type="button" disabled={importBusy} onClick={() => void onLogout()}>Sair</button>
+            <button className="logout-button account-logout" type="button" disabled={importBusy || openingId !== null} onClick={() => void onLogout()}>Sair</button>
           </div>
         </header>
 
@@ -335,8 +355,9 @@ export function AccountCenter({ onLogout, externalError, isGithubPages, sharedAc
                     <span className="admin-person-arrow" aria-hidden="true">→</span>
                   </button>
                   <div className="admin-person-actions">
-                    <button className="account-edit" type="button" onClick={() => startEdit(account)} aria-label={`Editar ${account.displayName}`}>Editar</button>
-                    <button className="account-delete" type="button" onClick={() => void deleteAccount(account)} disabled={deletingId === account.id} aria-label={`Apagar ${account.displayName}`}>
+                    {onOpenWorkspace && <button className="account-open-workspace" type="button" onClick={() => void openWorkspace(account)} disabled={openingId !== null || importBusy || editorBusy || deletingId !== null} aria-busy={openingId === account.id} aria-label={`Abrir espaço de ${account.displayName}`}>{openingId === account.id ? "Abrindo…" : "Abrir espaço"}<span aria-hidden="true">→</span></button>}
+                    <button className="account-edit" type="button" onClick={() => startEdit(account)} disabled={openingId !== null} aria-label={`Editar ${account.displayName}`}>Editar</button>
+                    <button className="account-delete" type="button" onClick={() => void deleteAccount(account)} disabled={deletingId === account.id || openingId !== null} aria-label={`Apagar ${account.displayName}`}>
                       {deletingId === account.id ? "Apagando…" : "Apagar"}
                     </button>
                   </div>
