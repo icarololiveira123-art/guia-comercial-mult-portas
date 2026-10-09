@@ -4,6 +4,8 @@ import test from "node:test";
 import { createSharedApi, digestText, makePasswordProof, normalizePasswordProof, verifyPassword } from "../supabase/functions/mult-portas-api/shared-api.mjs";
 import { createRestStore } from "../supabase/functions/mult-portas-api/rest-store.mjs";
 import { normalizeClientProgress } from "../supabase/functions/mult-portas-api/lib/client-progress.mjs";
+import { createSharedApiFetch, SHARED_SESSION_KEY } from "../app/lib/shared-api-client.mjs";
+import { readAccessSession } from "../app/lib/session-check.mjs";
 
 const ORIGIN = "https://icarololiveira123-art.github.io";
 const BASE = "https://example-project.supabase.co/functions/v1/mult-portas-api";
@@ -23,6 +25,7 @@ class MemoryStore {
   proof = null;
   calls = [];
   beforeExecute = null;
+  workspaceAccesses = [];
 
   constructor(clock) { this.clock = clock; }
   session(auth) {
@@ -47,13 +50,19 @@ class MemoryStore {
   async execute(action, payload = {}, auth = null) {
     this.calls.push(action);
     if (this.beforeExecute) await this.beforeExecute(action, payload, auth);
-    const protectedActions = ["resolve_session", "get_state", "save_state", "update_user", "list_users", "get_user_detail", "admin_create_user", "admin_update_user", "delete_user", "import_local"];
+    const workspaceActions = ["workspace_open", "workspace_read", "workspace_save"];
+    const protectedActions = ["resolve_session", "get_state", "save_state", "update_user", "list_users", "get_user_detail", "admin_create_user", "admin_update_user", "delete_user", "import_local", ...workspaceActions];
     let session;
     if (protectedActions.includes(action)) {
       session = this.session(auth);
       if (!session) return { status: "unauthorized" };
       if (["list_users", "get_user_detail", "admin_create_user", "admin_update_user", "delete_user", "import_local"].includes(action) && session.role !== "admin") return { status: "forbidden" };
       if (["get_state", "save_state", "update_user"].includes(action) && (session.role !== "user" || payload.userId !== session.userId)) return { status: "forbidden" };
+      if (workspaceActions.includes(action)) {
+        if (session.role !== "admin") return { status: "forbidden" };
+        const target = this.users.get(payload.userId);
+        if (!target || target.deleted) return { status: "not-found" };
+      }
     }
     if (action === "get_access_proof") return { proof: this.proof };
     if (action === "rate_limit") {
@@ -79,8 +88,12 @@ class MemoryStore {
       return { ok: true };
     }
     if (["create_user", "admin_create_user"].includes(action)) return this.createUser(payload);
-    if (action === "get_state") return clone(this.states.get(payload.userId) ?? { state: null, revision: null, clientState: { schemaVersion: 1 } });
-    if (action === "save_state") {
+    if (action === "workspace_open") {
+      if (payload.recordAccess) this.workspaceAccesses.push({ userId: payload.userId, tokenHash: auth.tokenHash });
+      return { user: clone(this.users.get(payload.userId)) };
+    }
+    if (["get_state", "workspace_read"].includes(action)) return clone(this.states.get(payload.userId) ?? { state: null, revision: null, clientState: { schemaVersion: 1 } });
+    if (["save_state", "workspace_save"].includes(action)) {
       const old = this.states.get(payload.userId);
       const progress = payload.clientState === undefined ? old?.clientState ?? { schemaVersion: 1 } : mergeProgress(old?.clientState, payload.clientState);
       if ((old?.revision ?? null) !== payload.baseRevision) {
@@ -289,6 +302,97 @@ test("legacy marketing compatibility reads cannot replace concurrent work or sav
   assert.equal(f.store.states.get(first.user.id).state.marketingDaily.days[0].inPersonExisting, 7);
 });
 
+test("direct workspace access keeps the panel session and shares only the selected account's work", async () => {
+  const f = fixture();
+  const alice = await f.register();
+  const bob = await f.register("bob");
+  const initial = await f.call("/api/data", { method: "PUT", token: alice.token, body: {
+    state: { sales: ["acolhimento"], followups: [{ id: "kept", client: "Cliente", next: "Retornar", amountCents: 125050 }] }, baseRevision: null,
+    clientState: { schemaVersion: 1, resume: { section: "control" }, brands: { brimak: { studySheet: { pending: "Confirmar medida" } } } },
+  } });
+  assert.equal(initial.status, 200);
+  const storage = { items: new Map(), getItem(key) { return this.items.get(key) ?? null; }, setItem(key, value) { this.items.set(key, value); }, removeItem(key) { this.items.delete(key); } };
+  const api = createSharedApiFetch({ baseUrl: "https://abcdefghijklmnopqrst.supabase.co/functions/v1/mult-portas-api", storage,
+    fetchImpl: (url, init) => f.handler(new Request(url, { ...init, headers: { ...Object.fromEntries(new Headers(init.headers)), Origin: ORIGIN } })) });
+  const request = async (path, method = "GET", body) => {
+    const response = await api(path, { method, ...(body === undefined ? {} : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }) });
+    return { status: response.status, body: await response.json() };
+  };
+  assert.equal((await request("/api/auth/login", "POST", { username: "admin", password: f.options.accessPassword })).status, 200);
+  const panelToken = JSON.parse(storage.getItem(SHARED_SESSION_KEY)).token;
+  const sessionCount = f.store.sessions.size;
+  const opened = await request(`/api/admin/users/${alice.user.id}/access`, "POST");
+  assert.equal(opened.status, 200);
+  assert.equal(opened.body.user.id, alice.user.id);
+  assert.equal(opened.body.workspaceAccess, true);
+  assert.equal(opened.body.admin, false);
+  assert.equal(opened.body.token, undefined);
+  assert.equal(opened.body.user.password, undefined);
+  assert.equal(f.store.sessions.size, sessionCount);
+  assert.equal(JSON.parse(storage.getItem(SHARED_SESSION_KEY)).token, panelToken);
+  assert.equal((await readAccessSession(api)).workspaceAccess, true);
+  const remote = await request("/api/data");
+  assert.equal(remote.body.state.followups[0].amountCents, 125050);
+  assert.equal(remote.body.clientState.resume.section, "control");
+  const updated = await request("/api/data", "PUT", { state: { ...remote.body.state, marketingDaily: { days: [{ date: "2026-10-09", seller: "Alice", inPersonExisting: 4 }] } }, baseRevision: remote.body.revision,
+    clientState: { schemaVersion: 1, resume: { section: "marketing" } } });
+  assert.equal(updated.status, 200);
+  const employeeData = await f.call("/api/data", { token: alice.token });
+  assert.equal(employeeData.body.state.marketingDaily.days[0].inPersonExisting, 4);
+  assert.equal(employeeData.body.clientState.resume.section, "marketing");
+  assert.equal(employeeData.body.clientState.brands.brimak.studySheet.pending, "Confirmar medida");
+  assert.equal((await f.call("/api/data", { token: bob.token })).body.state, null);
+  assert.equal((await request("/api/auth/profile", "PATCH", { displayName: "Changed" })).status, 403);
+  assert.equal((await request("/api/admin/access/end", "POST")).status, 200);
+  assert.deepEqual(await readAccessSession(api), { user: null, admin: true, workspaceAccess: false });
+  assert.equal(JSON.parse(storage.getItem(SHARED_SESSION_KEY)).workspaceUserId, undefined);
+  assert.equal((await request("/api/data")).status, 403);
+  assert.equal(f.store.workspaceAccesses.length, 1);
+  assert.equal((await f.call("/api/auth/login", { method: "POST", body: { username: "alice", password: alice.password } })).status, 200);
+});
+
+test("direct access rejects employee sessions, nonexistent accounts and expired or revoked panel authorization", async () => {
+  const f = fixture();
+  const alice = await f.register();
+  for (const [path, method] of [[`/api/admin/users/${alice.user.id}/access`, "POST"], [`/api/admin/users/${alice.user.id}/access`, "GET"], [`/api/admin/users/${alice.user.id}/workspace`, "GET"], [`/api/admin/users/${alice.user.id}/workspace`, "PUT"], ["/api/admin/access/end", "POST"]]) {
+    assert.equal((await f.call(path, { method, token: alice.token })).status, 403);
+    assert.equal((await f.call(path, { method })).status, 401);
+  }
+  const panelToken = await f.privileged();
+  assert.equal((await f.call("/api/admin/users/9007199254740992/access", { method: "POST", token: panelToken })).status, 400);
+  assert.equal((await f.call("/api/admin/users/999/access", { method: "POST", token: panelToken })).status, 404);
+  const missingOnRefresh = await f.call("/api/admin/users/999/access", { token: panelToken });
+  assert.deepEqual(missingOnRefresh.body, { user: null, admin: true, workspaceAccess: false });
+  f.store.beforeExecute = async (action, _payload, auth) => { if (action === "workspace_open") f.store.sessions.get(auth.tokenHash).revoked = true; };
+  assert.equal((await f.call(`/api/admin/users/${alice.user.id}/access`, { method: "POST", token: panelToken })).status, 401);
+  assert.equal(f.store.workspaceAccesses.length, 0);
+  f.store.beforeExecute = null;
+  const freshPanel = await f.privileged();
+  f.store.beforeExecute = async (action, _payload, auth) => { if (action === "workspace_save") f.store.sessions.get(auth.tokenHash).revoked = true; };
+  assert.equal((await f.call(`/api/admin/users/${alice.user.id}/workspace`, { method: "PUT", token: freshPanel, body: { state: { sales: ["blocked"] }, baseRevision: null } })).status, 401);
+  assert.equal(f.store.states.size, 0);
+  f.store.beforeExecute = null;
+  const expiring = await f.privileged();
+  f.advance(9 * 3_600_000);
+  assert.equal((await f.call(`/api/admin/users/${alice.user.id}/workspace`, { token: expiring })).status, 401);
+});
+
+test("panel and employee edits share revision conflicts; removing a profile blocks further direct reads", async () => {
+  const f = fixture();
+  const alice = await f.register();
+  const panelToken = await f.privileged();
+  const first = await f.call(`/api/admin/users/${alice.user.id}/workspace`, { method: "PUT", token: panelToken, body: { state: { sales: ["first"] }, baseRevision: null } });
+  assert.equal(first.status, 200);
+  const later = await f.call("/api/data", { method: "PUT", token: alice.token, body: { state: { sales: ["later"] }, baseRevision: first.body.revision } });
+  assert.equal(later.status, 200);
+  const stale = await f.call(`/api/admin/users/${alice.user.id}/workspace`, { method: "PUT", token: panelToken, body: { state: { sales: ["stale"] }, baseRevision: first.body.revision } });
+  assert.equal(stale.status, 409);
+  assert.deepEqual((await f.call(`/api/admin/users/${alice.user.id}/workspace`, { token: panelToken })).body.state.sales, ["later"]);
+  assert.equal((await f.call(`/api/admin/users/${alice.user.id}`, { method: "DELETE", token: panelToken })).status, 200);
+  assert.equal((await f.call(`/api/admin/users/${alice.user.id}/workspace`, { token: panelToken })).status, 404);
+  assert.equal((await f.call(`/api/admin/users/${alice.user.id}/access`, { method: "POST", token: panelToken })).status, 404);
+});
+
 test("password typos keep the session, profile rotation and removal revoke other devices without losing retained work", async () => {
   const f = fixture();
   const alice = await f.register();
@@ -472,6 +576,10 @@ test("REST database transport keeps the service credential server-side and passe
   assert.equal(captured.init.redirect, "error");
   const body = JSON.parse(captured.init.body);
   assert.deepEqual(Object.keys(body.p_auth).sort(), ["adminVersion", "now", "tokenHash"]);
+  assert.ok(!captured.init.body.includes(serviceKey));
+  await store.execute("workspace_read", { userId: 4 }, { tokenHash, adminVersion: "version", now: new Date().toISOString() });
+  assert.equal(captured.url, "https://example-project.supabase.co/rest/v1/rpc/mp_shared_workspace_access");
+  assert.equal(JSON.parse(captured.init.body).p_action, "workspace_read");
   assert.ok(!captured.init.body.includes(serviceKey));
 });
 

@@ -91,6 +91,92 @@ function centralServer() {
   return { fetchImpl, calls, sessions };
 }
 
+test("workspace transitions preserve the panel token, bind refreshes to the selected user and restore a removed account", async () => {
+  const storage = new Storage();
+  const token = crypto.randomUUID();
+  const original = { endpoint: BASE, token, generation: "panel", admin: true, userId: null };
+  storage.setItem(SHARED_SESSION_KEY, JSON.stringify(original));
+  const paths = [];
+  let refreshUser = employee(7);
+  let unavailable = false;
+  const api = createSharedApiFetch({ baseUrl: BASE, storage, fetchImpl: async (url, init) => {
+    const path = url.slice(BASE.length); paths.push(path);
+    assert.equal(init.headers.get("Authorization"), `Bearer ${token}`);
+    if (path === "/api/admin/users/7/access") return Response.json(unavailable
+      ? { user: null, admin: true, workspaceAccess: false }
+      : { user: refreshUser, admin: false, workspaceAccess: true });
+    if (path === "/api/admin/users/7/workspace") return Response.json({ state: { sales: ["kept"] }, revision: "current" });
+    if (path === "/api/admin/access/end") return Response.json({ user: null, admin: true, workspaceAccess: false });
+    return Response.json({ user: null, admin: true });
+  } });
+  assert.equal((await request(api, "/api/admin/users/7/access", "POST")).status, 200);
+  assert.equal(JSON.parse(storage.getItem(SHARED_SESSION_KEY)).token, token);
+  assert.equal(JSON.parse(storage.getItem(SHARED_SESSION_KEY)).workspaceUserId, 7);
+  assert.equal((await request(api, "/api/data")).data.state.sales[0], "kept");
+  assert.equal(paths.at(-1), "/api/admin/users/7/workspace");
+  const selectedRaw = storage.getItem(SHARED_SESSION_KEY);
+  refreshUser = employee(8);
+  assert.equal((await request(api, "/api/auth/me")).status, 502);
+  assert.equal(storage.getItem(SHARED_SESSION_KEY), selectedRaw);
+  refreshUser = employee(7);
+  unavailable = true;
+  const restored = await request(api, "/api/auth/me");
+  assert.equal(restored.status, 200);
+  assert.equal(restored.data.admin, true);
+  assert.equal(JSON.parse(storage.getItem(SHARED_SESSION_KEY)).workspaceUserId, undefined);
+  assert.equal(JSON.parse(storage.getItem(SHARED_SESSION_KEY)).token, token);
+});
+
+test("workspace access refuses invalid identities and storage failures without replacing the existing session", async () => {
+  const storage = new Storage();
+  storage.setItem(SHARED_SESSION_KEY, JSON.stringify({ endpoint: BASE, token: crypto.randomUUID(), generation: "panel", admin: true, userId: null }));
+  const original = storage.getItem(SHARED_SESSION_KEY);
+  let resultUser = employee(9);
+  const api = createSharedApiFetch({ baseUrl: BASE, storage, fetchImpl: async () => Response.json({ user: resultUser, admin: false, workspaceAccess: true }) });
+  assert.equal((await request(api, "/api/admin/users/7/access", "POST")).status, 502);
+  assert.equal(storage.getItem(SHARED_SESSION_KEY), original);
+  resultUser = employee(7);
+  storage.setItem = () => { throw new DOMException("quota", "QuotaExceededError"); };
+  assert.equal((await request(api, "/api/admin/users/7/access", "POST")).status, 503);
+  assert.equal(storage.getItem(SHARED_SESSION_KEY), original);
+});
+
+test("returning to the panel cancels a delayed workspace result and keeps the original authority", async () => {
+  const storage = new Storage();
+  const token = crypto.randomUUID();
+  storage.setItem(SHARED_SESSION_KEY, JSON.stringify({ endpoint: BASE, token, generation: "workspace", admin: true, userId: null, workspaceUserId: 7 }));
+  const slow = deferred();
+  let waiting;
+  const started = new Promise(resolve => { waiting = resolve; });
+  const api = createSharedApiFetch({ baseUrl: BASE, storage, fetchImpl: async (url) => {
+    if (url.endsWith("/workspace")) { waiting(); return slow.promise; }
+    return Response.json({ user: null, admin: true, workspaceAccess: false });
+  } });
+  const pending = api("/api/data");
+  const rejected = assert.rejects(pending, { name: "AbortError" });
+  await started;
+  assert.equal((await request(api, "/api/admin/access/end", "POST")).status, 200);
+  slow.resolve(Response.json({ state: { sales: ["stale"] }, revision: "stale" }));
+  await rejected;
+  const stored = JSON.parse(storage.getItem(SHARED_SESSION_KEY));
+  assert.equal(stored.token, token);
+  assert.equal(stored.workspaceUserId, undefined);
+  assert.equal(stored.admin, true);
+});
+
+test("employee sessions cannot activate the workspace context through client storage or public routes", async () => {
+  const storage = new Storage();
+  const original = { endpoint: BASE, token: crypto.randomUUID(), generation: "employee", admin: false, userId: 7 };
+  storage.setItem(SHARED_SESSION_KEY, JSON.stringify(original));
+  let calls = 0;
+  const api = createSharedApiFetch({ baseUrl: BASE, storage, fetchImpl: async () => { calls += 1; return Response.json({}); } });
+  assert.equal((await request(api, "/api/admin/users/8/access", "POST")).status, 403);
+  assert.equal((await request(api, "/api/admin/access/end", "POST")).status, 403);
+  storage.setItem(SHARED_SESSION_KEY, JSON.stringify({ ...original, workspaceUserId: 8 }));
+  assert.equal((await request(api, "/api/data")).status, 503);
+  assert.equal(calls, 0);
+});
+
 test("two computers share an account's saved work while another account remains separate", async () => {
   const server = centralServer();
   const firstStorage = new Storage();

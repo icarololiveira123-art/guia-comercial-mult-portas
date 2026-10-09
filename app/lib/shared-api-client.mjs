@@ -118,7 +118,8 @@ export function createSharedApiFetch({ baseUrl, fetchImpl, storage, allowLocalho
     if (value.endpoint !== endpoint) return { storage: currentStorage, raw, session: null };
     if (!validToken(value.token) || typeof value.generation !== "string" || !value.generation
       || typeof value.admin !== "boolean"
-      || (value.admin ? value.userId !== null : !Number.isSafeInteger(value.userId) || value.userId <= 0)) {
+      || (value.admin ? value.userId !== null : !Number.isSafeInteger(value.userId) || value.userId <= 0)
+      || (value.workspaceUserId !== undefined && (!value.admin || !Number.isSafeInteger(value.workspaceUserId) || value.workspaceUserId <= 0))) {
       throw new Error("invalid stored session");
     }
     return { storage: currentStorage, raw, session: value };
@@ -141,9 +142,12 @@ export function createSharedApiFetch({ baseUrl, fetchImpl, storage, allowLocalho
     const route = path.split("?", 1)[0];
     const method = (init.method ?? "GET").toUpperCase();
     const authenticating = AUTH_ROUTES.has(route) && method === "POST";
+    const workspaceMatch = /^\/api\/admin\/users\/([1-9]\d*)\/access$/.exec(route);
+    const openingWorkspace = Boolean(workspaceMatch && method === "POST");
+    const returningToPanel = route === "/api/admin/access/end" && method === "POST";
     // An older login cannot win a race with the most recent login attempt, and
     // outstanding account reads/saves cannot update the newly selected account.
-    if (authenticating) generation += 1;
+    if (authenticating || openingWorkspace || returningToPanel) generation += 1;
     const requestGeneration = generation;
     let captured;
     try { captured = snapshot(); } catch { return storageError(); }
@@ -154,7 +158,20 @@ export function createSharedApiFetch({ baseUrl, fetchImpl, storage, allowLocalho
       return json({ error: "Sessão expirada. Entre novamente." }, 401);
     }
 
-    const target = new URL(`${endpoint}${path}`);
+    if ((openingWorkspace || returningToPanel) && captured.session?.admin !== true) {
+      return json({ error: "Acesso não autorizado." }, 403);
+    }
+    if (openingWorkspace && captured.session.workspaceUserId !== undefined) {
+      return json({ error: "Volte ao painel antes de abrir outro espaço." }, 409);
+    }
+    let networkPath = path;
+    const workspaceUserId = captured.session?.workspaceUserId;
+    if (workspaceUserId !== undefined) {
+      if (route === "/api/data") networkPath = path.replace(route, `/api/admin/users/${workspaceUserId}/workspace`);
+      if (route === "/api/auth/me" && method === "GET") networkPath = `/api/admin/users/${workspaceUserId}/access`;
+    }
+
+    const target = new URL(`${endpoint}${networkPath}`);
     if (target.origin !== endpointUrl.origin || !target.pathname.startsWith(`${endpointUrl.pathname}/api/`)
       || !endpointUrl.pathname.startsWith(API_PREFIX)) {
       return json({ error: "O endereço deste recurso não é permitido." }, 400);
@@ -232,6 +249,32 @@ export function createSharedApiFetch({ baseUrl, fetchImpl, storage, allowLocalho
         }
       }
       if (route === "/api/auth/me" && method === "GET") return json({ user: null, admin: false });
+    }
+
+    const restoringPanel = route === "/api/auth/me" && method === "GET" && workspaceUserId !== undefined
+      && payload.admin === true && payload.user === null && payload.workspaceAccess === false;
+    if (response.ok && route === "/api/auth/me" && method === "GET" && workspaceUserId !== undefined && !restoringPanel
+      && !(payload.workspaceAccess === true && payload.admin === false && validUser(payload.user) && payload.user.id === workspaceUserId)) {
+      return json({ error: "O servidor enviou dados de outra conta. Volte ao painel e tente novamente." }, 502);
+    }
+    if (response.ok && (openingWorkspace || returningToPanel || restoringPanel)) {
+      const validIdentity = openingWorkspace
+        ? payload.workspaceAccess === true && payload.admin === false && validUser(payload.user) && payload.user.id === Number(workspaceMatch[1])
+        : payload.workspaceAccess === false && payload.admin === true && payload.user === null;
+      if (!validIdentity || captured.session?.admin !== true) {
+        return json({ error: "O servidor enviou dados de acesso inválidos. Tente novamente." }, 502);
+      }
+      try {
+        assertCurrent(requestGeneration, captured, signal);
+        const next = { ...captured.session, generation: crypto.randomUUID() };
+        if (openingWorkspace) next.workspaceUserId = payload.user.id;
+        else delete next.workspaceUserId;
+        captured.storage.setItem(SHARED_SESSION_KEY, JSON.stringify(next));
+        generation += 1;
+      } catch (error) {
+        if (error?.name === "AbortError") throw error;
+        return storageError();
+      }
     }
 
     if (response.ok && (authenticating || route === "/api/auth/profile" && method === "PATCH")) {
