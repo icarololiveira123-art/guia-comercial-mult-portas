@@ -13,6 +13,10 @@ import { followUpStatusOptions as statusOptions, prepareFollowUpEdit } from "./l
 import { normalizeQuoteAmountCents } from "./lib/quote-amount.mjs";
 import { catalogItems as catalogItemData } from "./lib/catalog-items.mjs";
 import { localApiFetch } from "./lib/github-local-api.mjs";
+import { createSharedApiFetch } from "./lib/shared-api-client.mjs";
+import { sharedApiBaseUrl } from "./lib/shared-api-config.mjs";
+import { applyClientProgress, collectClientProgress, normalizeClientProgress, mergeClientProgress, CLIENT_PROGRESS_EVENT } from "./lib/client-progress.mjs";
+import { migrateLegacyEmployeeLogin } from "./lib/local-account-migration.mjs";
 import { readAccessSession } from "./lib/session-check.mjs";
 import { guidedCustomerReply } from "./api/coach/customer-policy.mjs";
 import {
@@ -67,6 +71,8 @@ type SaveStatus = "idle" | "saving" | "saved" | "offline" | "error" | "conflict"
 type ToastKind = "success" | "error" | "info";
 
 const IS_GITHUB_PAGES = (import.meta as ImportMeta & { env?: Record<string, string> }).env?.VITE_GITHUB_PAGES === "true";
+const IS_SHARED_API = IS_GITHUB_PAGES && Boolean(sharedApiBaseUrl);
+const LOCAL_STORAGE_MODE = IS_GITHUB_PAGES && !IS_SHARED_API;
 const publicAssetHref = (href: string) => IS_GITHUB_PAGES && href.startsWith("/") ? `/guia-comercial-mult-portas${href}` : href;
 
 type EmployeeUser = {
@@ -458,7 +464,7 @@ const STORAGE = {
 };
 
 function scopedStorageKey(userId: number, key: string) {
-  return `mult-portas-guia-user-${userId}-${key}`;
+  return `${IS_SHARED_API ? "mult-portas-shared" : "mult-portas-guia"}-user-${userId}-${key}`;
 }
 
 function safelyParseJson(value: string | null): unknown {
@@ -470,6 +476,7 @@ function safelyParseJson(value: string | null): unknown {
   }
 }
 
+let sharedPagesFetch: ReturnType<typeof createSharedApiFetch> | null = null;
 async function apiFetch(path: string, init: RequestInit = {}, timeoutMs = 15_000) {
   const controller = new AbortController();
   const sourceSignal = init.signal;
@@ -478,6 +485,10 @@ async function apiFetch(path: string, init: RequestInit = {}, timeoutMs = 15_000
   else sourceSignal?.addEventListener("abort", abortFromSource, { once: true });
   const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
   try {
+    if (IS_SHARED_API) {
+      sharedPagesFetch ??= createSharedApiFetch({ baseUrl: sharedApiBaseUrl });
+      return await sharedPagesFetch(path, { ...init, signal: controller.signal });
+    }
     return IS_GITHUB_PAGES
       ? await localApiFetch(path, { ...init, signal: controller.signal })
       : await fetch(path, { ...init, credentials: "same-origin", signal: controller.signal });
@@ -521,6 +532,7 @@ type LocalPendingState = {
   state: PersistedGuideState;
   baseRevision: string | null;
   updatedAt: string;
+  clientState?: unknown;
 };
 
 function readLocalPendingState(userId: number): LocalPendingState | null {
@@ -534,6 +546,7 @@ function readLocalPendingState(userId: number): LocalPendingState | null {
       state: source.state,
       baseRevision: typeof source.baseRevision === "string" ? source.baseRevision : null,
       updatedAt: typeof source.updatedAt === "string" ? source.updatedAt : "",
+      ...(source.clientState ? { clientState: source.clientState } : {}),
     };
   } catch {
     return null;
@@ -1641,6 +1654,8 @@ export default function Home() {
   const [dataLoaded, setDataLoaded] = useState(false);
   const [dataLoadError, setDataLoadError] = useState("");
   const [dataLoadAttempt, setDataLoadAttempt] = useState(0);
+  const [clientProgressVersion, setClientProgressVersion] = useState(0);
+  const [conflictDraftAvailable, setConflictDraftAvailable] = useState(false);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   const [today, setToday] = useState("30 JUL 2026");
@@ -1650,7 +1665,9 @@ export default function Home() {
   const voiceChunksRef = useRef<Blob[]>([]);
   const voiceFinalPartsRef = useRef<string[]>([]);
   const voiceUrlsRef = useRef<string[]>([]);
-  const pendingStateRef = useRef<{ userId: number; state: PersistedGuideState; baseRevision: string | null } | null>(null);
+  const pendingStateRef = useRef<{ userId: number; state: PersistedGuideState; baseRevision: string | null; clientState?: unknown } | null>(null);
+  const progressSnapshotRef = useRef("");
+  const progressStateRef = useRef<ReturnType<typeof normalizeClientProgress>>({ schemaVersion: 1 });
   const saveTimerRef = useRef<number | null>(null);
   const flushLoopRef = useRef<Promise<boolean> | null>(null);
   const sessionEpochRef = useRef(0);
@@ -1673,6 +1690,9 @@ export default function Home() {
     // A request from the previous account may still finish after the next
     // account signs in. Its result must not touch the new workspace.
     sessionEpochRef.current += 1;
+    progressStateRef.current = { schemaVersion: 1 };
+    progressSnapshotRef.current = "";
+    setConflictDraftAvailable(false);
     voiceCaptureAttemptRef.current += 1;
     trainingRequestRef.current?.controller.abort();
     trainingRequestRef.current = null;
@@ -1805,25 +1825,29 @@ export default function Home() {
           const response = await apiFetch("/api/data", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ state: pending.state, baseRevision: pending.baseRevision }),
+            body: JSON.stringify({ state: pending.state, baseRevision: pending.baseRevision, ...(IS_SHARED_API ? { clientState: pending.clientState } : {}) }),
           });
-          const payload = await readResponseJson<{ revision?: unknown; error?: string }>(response);
+          const payload = await readResponseJson<{ ok?: unknown; revision?: unknown; error?: string }>(response);
           if (sessionEpochRef.current !== sessionEpoch) return false;
           if (!response.ok) {
             const error = new Error(payload.error || "Não foi possível salvar os dados agora.") as Error & { status?: number };
             error.status = response.status;
             throw error;
           }
-          const revision = typeof payload.revision === "string" ? payload.revision : null;
+          if (payload.ok !== true || typeof payload.revision !== "string" || !payload.revision || payload.revision.length > 256) {
+            throw new Error("O servidor não confirmou o salvamento. Seus rascunhos foram preservados.");
+          }
+          const revision = payload.revision;
           revisionRef.current = revision;
           clearScopedLocalState(pending.userId);
-          const queuedAfterSave = pendingStateRef.current as unknown as { userId: number; state: PersistedGuideState; baseRevision: string | null } | null;
+          const queuedAfterSave = pendingStateRef.current as unknown as { userId: number; state: PersistedGuideState; baseRevision: string | null; clientState?: unknown } | null;
           if (queuedAfterSave?.userId === pending.userId) {
             pendingStateRef.current = { ...queuedAfterSave, baseRevision: revision };
             writeLocalPendingState(pending.userId, {
               state: queuedAfterSave.state,
               baseRevision: revision,
               updatedAt: new Date().toISOString(),
+              ...(queuedAfterSave.clientState ? { clientState: queuedAfterSave.clientState } : {}),
             });
           }
           setLastSavedAt(new Date());
@@ -1885,7 +1909,7 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (!IS_GITHUB_PAGES) return;
+    if (!LOCAL_STORAGE_MODE) return;
     let cancelled = false;
     apiFetch("/api/auth/admin/status", { cache: "no-store" })
       .then(async (response) => response.ok ? await readResponseJson<{ configured?: boolean }>(response) : { configured: true })
@@ -1900,10 +1924,12 @@ export default function Home() {
     let cancelled = false;
     const timer = window.setTimeout(async () => {
       let state: PersistedGuideState | null = null;
+      let loadedProgress: ReturnType<typeof normalizeClientProgress> | null = null;
       let usingLocalBackup = false;
       try {
         const response = await apiFetch("/api/data", { cache: "no-store" });
-        const payload = await readResponseJson<{ state?: unknown; revision?: unknown; error?: string }>(response);
+        const payload = await readResponseJson<{ state?: unknown; revision?: unknown; clientState?: unknown; error?: string }>(response);
+        if (cancelled) return;
         if (!response.ok) {
           if (response.status === 401) {
             if (!cancelled) {
@@ -1926,8 +1952,20 @@ export default function Home() {
           state = localPending.state;
           revisionRef.current = localPending.baseRevision;
           usingLocalBackup = true;
+          if (IS_SHARED_API && localPending.clientState) {
+            loadedProgress = normalizeClientProgress(localPending.clientState);
+            applyClientProgress(authUserId, loadedProgress, undefined, { scope: "shared" });
+          }
         } else {
           clearScopedLocalState(authUserId);
+          if (IS_SHARED_API && payload.clientState) {
+            loadedProgress = normalizeClientProgress(payload.clientState);
+            applyClientProgress(authUserId, loadedProgress, undefined, { scope: "shared" });
+          }
+        }
+        if (IS_SHARED_API) {
+          progressStateRef.current = loadedProgress ?? { schemaVersion: 1 };
+          progressSnapshotRef.current = JSON.stringify(progressStateRef.current);
         }
       } catch (error) {
         if (!cancelled) {
@@ -1938,6 +1976,7 @@ export default function Home() {
         return;
       }
       if (cancelled) return;
+      try { setConflictDraftAvailable(localStorage.getItem(scopedStorageKey(authUserId, "conflict-draft-v1")) !== null); } catch { /* Recovery remains optional when local storage is blocked. */ }
 
       const savedSales = Array.isArray(state?.sales) ? state.sales : [];
       const savedTiming = Array.isArray(state?.timing) ? state.timing : [];
@@ -2060,7 +2099,7 @@ export default function Home() {
         : planner.fair?.includeEmojis === false ? "none" : "mixed");
       if (IS_GITHUB_PAGES) {
         try {
-          const resume = safelyParseJson(localStorage.getItem(scopedStorageKey(authUserId, "resume-v1")));
+          const resume = loadedProgress?.resume ?? safelyParseJson(localStorage.getItem(scopedStorageKey(authUserId, "resume-v1")));
           if (resume && typeof resume === "object" && !Array.isArray(resume)) {
             const saved = resume as Record<string, unknown>;
             if (typeof saved.section === "string" && sections.some((item) => item.id === saved.section)) setSection(saved.section as Section);
@@ -2208,8 +2247,14 @@ export default function Home() {
     const baseRevision = pendingStateRef.current?.userId === authUser.id
       ? pendingStateRef.current.baseRevision
       : revisionRef.current;
-    pendingStateRef.current = { userId: authUser.id, state, baseRevision };
-    writeLocalPendingState(authUser.id, { state, baseRevision, updatedAt: new Date().toISOString() });
+    let clientState: ReturnType<typeof normalizeClientProgress> | undefined;
+    if (IS_SHARED_API) {
+      // Oversized or damaged lesson storage cannot block business records.
+      // The API preserves progress whenever this field is omitted.
+      try { clientState = normalizeClientProgress(progressStateRef.current); } catch { /* Retain previous server progress. */ }
+    }
+    pendingStateRef.current = { userId: authUser.id, state, baseRevision, ...(clientState ? { clientState } : {}) };
+    writeLocalPendingState(authUser.id, { state, baseRevision, updatedAt: new Date().toISOString(), ...(clientState ? { clientState } : {}) });
 
     const timer = window.setTimeout(() => {
       if (saveTimerRef.current === timer) saveTimerRef.current = null;
@@ -2220,16 +2265,51 @@ export default function Home() {
       window.clearTimeout(timer);
       if (saveTimerRef.current === timer) saveTimerRef.current = null;
     };
-  }, [authUser, dailyDone, dataLoaded, doneSales, doneTiming, drawerChecks, factoryItems, fairChannel, fairCity, fairClientName, fairConsultantName, fairDiscount, fairEmojiMode, fairEventDate, fairEventTime, fairInterest, fairProfileId, fairTone, flushPendingState, followUps, hydrated, marketingDaily, messageAudience, messageChannel, messageEnvironment, messageLine, messageName, messageObjective, messageProof, messageQuestion, messageTone, metrics, providerName, providerObjective, providerProfile, providerQuestion, providerRegion, providerType, trainingStats]);
+  }, [authUser, clientProgressVersion, dailyDone, dataLoaded, doneSales, doneTiming, drawerChecks, factoryItems, fairChannel, fairCity, fairClientName, fairConsultantName, fairDiscount, fairEmojiMode, fairEventDate, fairEventTime, fairInterest, fairProfileId, fairTone, flushPendingState, followUps, hydrated, marketingDaily, messageAudience, messageChannel, messageEnvironment, messageLine, messageName, messageObjective, messageProof, messageQuestion, messageTone, metrics, providerName, providerObjective, providerProfile, providerQuestion, providerRegion, providerType, trainingStats]);
 
   useEffect(() => {
     if (!IS_GITHUB_PAGES || !authUserId || !hydrated || !dataLoaded) return;
-    writeScopedLocalState(authUserId, "resume-v1", {
+    const resume = {
       section, brand, messageView, fairView, salesStep: activeSalesStep, timingStep: activeTimingStep, trainingScenario: activeTrainingScenario,
       factoryWizardStep, factoryWizardDraft,
       trainingStarted, trainingMessages: trainingMessages.map(({ role, text }) => ({ role, text })).slice(-24), trainingInput,
-    });
+    };
+    if (IS_SHARED_API) {
+      try {
+        applyClientProgress(authUserId, { schemaVersion: 1, resume }, undefined, { scope: "shared" });
+        window.dispatchEvent(new CustomEvent(CLIENT_PROGRESS_EVENT, { detail: { userId: authUserId, resume } }));
+      } catch { /* Preserve oversized local notes and keep business records available. */ }
+    } else writeScopedLocalState(authUserId, "resume-v1", resume);
   }, [authUserId, hydrated, dataLoaded, section, brand, messageView, fairView, activeSalesStep, activeTimingStep, activeTrainingScenario, factoryWizardStep, factoryWizardDraft, trainingStarted, trainingMessages, trainingInput]);
+
+  useEffect(() => {
+    if (!IS_SHARED_API || !authUserId) return;
+    const detectChange = (event: Event) => {
+      if (event instanceof CustomEvent && event.detail?.userId !== authUserId) return;
+      try {
+        const previous = progressStateRef.current;
+        let stored: ReturnType<typeof normalizeClientProgress> = { schemaVersion: 1 };
+        try { stored = collectClientProgress(authUserId, undefined, { scope: "shared" }); } catch { /* Do not drop valid server progress. */ }
+        let candidate = mergeClientProgress(previous, stored);
+        if (event instanceof CustomEvent) {
+          const detail = event.detail;
+          if (detail.resume) candidate = mergeClientProgress(candidate, { schemaVersion: 1, resume: detail.resume });
+          else if (typeof detail.brand === "string" && ["learning", "studySheet", "view"].includes(detail.field)) {
+            candidate = mergeClientProgress(candidate, { schemaVersion: 1, brands: { [detail.brand]: { [detail.field]: detail.value } } });
+          }
+        }
+        const next = normalizeClientProgress(candidate);
+        const snapshot = JSON.stringify(next);
+        if (snapshot !== progressSnapshotRef.current) {
+          progressStateRef.current = next;
+          progressSnapshotRef.current = snapshot;
+          setClientProgressVersion((version) => version + 1);
+        }
+      } catch { /* A damaged or oversized local record never replaces server progress. */ }
+    };
+    window.addEventListener(CLIENT_PROGRESS_EVENT, detectChange);
+    return () => window.removeEventListener(CLIENT_PROGRESS_EVENT, detectChange);
+  }, [authUserId]);
 
   useEffect(() => {
     if (IS_GITHUB_PAGES || !authUserId) return;
@@ -2375,13 +2455,13 @@ export default function Home() {
   const saveStatusLabel = saveStatus === "saving"
     ? "Salvando…"
     : saveStatus === "conflict"
-      ? "Outra aba alterou estes dados"
+      ? "Outra sessão atualizou estes dados"
     : saveStatus === "offline"
-      ? IS_GITHUB_PAGES ? "Salvamento local pendente" : "Offline · envio pendente"
+      ? LOCAL_STORAGE_MODE ? "Salvamento local pendente" : "Offline · envio pendente"
       : saveStatus === "error"
-        ? IS_GITHUB_PAGES ? "Salvamento local pendente" : "Sincronização pendente"
+        ? LOCAL_STORAGE_MODE ? "Salvamento local pendente" : "Sincronização pendente"
         : saveStatus === "saved"
-          ? lastSavedAt ? `${IS_GITHUB_PAGES ? "Salvo neste aparelho" : "Salvo"} às ${lastSavedAt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}` : IS_GITHUB_PAGES ? "Salvo neste aparelho" : "Dados sincronizados"
+          ? lastSavedAt ? `${LOCAL_STORAGE_MODE ? "Salvo neste aparelho" : "Salvo"} às ${lastSavedAt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}` : LOCAL_STORAGE_MODE ? "Salvo neste aparelho" : "Dados sincronizados"
           : "Preparando dados";
   const providerTypeChoices = providerProfile === "Empresa" ? providerCompanyTypeOptions : providerTypeOptions;
   const providerGoalChoices = providerProfile === "Empresa" ? providerCompanyGoalOptions : providerGoalOptions;
@@ -2513,7 +2593,7 @@ export default function Home() {
 
     setProfileBusy(true);
     try {
-      if (!(await flushPendingState())) throw new Error(IS_GITHUB_PAGES ? "Salve as alterações pendentes antes de atualizar o perfil." : "Sincronize as alterações pendentes antes de atualizar o perfil.");
+      if (!(await flushPendingState())) throw new Error(LOCAL_STORAGE_MODE ? "Salve as alterações pendentes antes de atualizar o perfil." : "Sincronize as alterações pendentes antes de atualizar o perfil.");
       const response = await apiFetch("/api/auth/profile", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -2545,6 +2625,48 @@ export default function Home() {
     }
   }
 
+  function downloadConflictDraft() {
+    if (!authUserId) return;
+    try {
+      const raw = localStorage.getItem(scopedStorageKey(authUserId, "conflict-draft-v1"));
+      if (!raw || !safelyParseJson(raw)) throw new Error("O rascunho salvo não está disponível neste aparelho.");
+      const href = URL.createObjectURL(new Blob([raw], { type: "application/json" }));
+      const link = document.createElement("a");
+      link.href = href;
+      link.download = `mult-portas-rascunho-${authUserId}.json`;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(href), 1000);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Não foi possível abrir o rascunho.", "error");
+    }
+  }
+
+  async function reloadAfterConflict() {
+    if (!authUserId || saveStatus !== "conflict") return;
+    const sessionEpoch = sessionEpochRef.current;
+    if (flushLoopRef.current) await flushLoopRef.current;
+    if (sessionEpochRef.current !== sessionEpoch) return;
+    const pending = pendingStateRef.current;
+    if (!pending || pending.userId !== authUserId) return;
+    try {
+      const key = scopedStorageKey(authUserId, "conflict-draft-v1");
+      const original = localStorage.getItem(key);
+      const previous = safelyParseJson(original);
+      if (original !== null && !Array.isArray(previous)) throw new Error("O rascunho anterior precisa ser preservado.");
+      const drafts = Array.isArray(previous) ? previous : [];
+      localStorage.setItem(key, JSON.stringify([...drafts, { capturedAt: new Date().toISOString(), ...pending }].slice(-8)));
+      localStorage.removeItem(scopedStorageKey(authUserId, "pending-state-v1"));
+    } catch {
+      showToast("Não foi possível guardar o rascunho neste aparelho. Seus dados continuam na tela.", "error");
+      return;
+    }
+    if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = null;
+    pendingStateRef.current = null;
+    resetEmployeeWorkspace();
+    setDataLoadAttempt((attempt) => attempt + 1);
+  }
+
   async function handleAuthSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setAuthError("");
@@ -2559,12 +2681,16 @@ export default function Home() {
       const body = authMode === "setup" ? { password: authForm.password } : authMode === "register"
         ? { displayName: authForm.displayName, username: authForm.username, branch: authForm.branch, password: authForm.password }
         : { username: authForm.username, password: authForm.password };
-      const response = await apiFetch(endpoint, {
+      let response = await apiFetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      const data = await readResponseJson<{ user?: EmployeeUser; admin?: boolean; error?: string }>(response);
+      if (IS_SHARED_API && authMode === "login" && response.status === 401) {
+        const migrated = await migrateLegacyEmployeeLogin(apiFetch, { username: authForm.username, password: authForm.password });
+        if (migrated) response = migrated;
+      }
+      const data = await readResponseJson<{ user?: EmployeeUser; admin?: boolean; error?: string; migrationWarning?: string }>(response);
       if (!response.ok || (!data.user && data.admin !== true)) throw new Error(data.error || "Não foi possível concluir o acesso.");
       pendingStateRef.current = null;
       if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current);
@@ -2579,6 +2705,7 @@ export default function Home() {
       setAuthUser(data.user ?? null);
       setAuthForm({ displayName: "", username: "", branch: "Araraquara", password: "", confirmPassword: "" });
       setSection("overview");
+      if (data.migrationWarning) showToast(data.migrationWarning, "info");
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : "Não foi possível concluir o acesso.");
     } finally {
@@ -2591,7 +2718,7 @@ export default function Home() {
     setAuthError("");
     try {
       if (!(await flushPendingState())) {
-        throw new Error(IS_GITHUB_PAGES
+        throw new Error(LOCAL_STORAGE_MODE
           ? "Não foi possível salvar suas alterações neste aparelho. A saída foi cancelada para preservar seus dados."
           : "Não foi possível sincronizar suas alterações. A saída foi cancelada para preservar seus dados.");
       }
@@ -3014,19 +3141,6 @@ export default function Home() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  function reloadServerState() {
-    if (!authUser || !window.confirm(IS_GITHUB_PAGES
-      ? "Recarregar a versão salva neste aparelho? As alterações locais pendentes serão descartadas."
-      : "Recarregar a versão salva no servidor? A cópia local pendente será descartada.")) return;
-    pendingStateRef.current = null;
-    clearScopedLocalState(authUser.id);
-    setSaveStatus("idle");
-    setDataLoadError("");
-    setDataLoaded(false);
-    setHydrated(false);
-    setDataLoadAttempt((current) => current + 1);
-  }
-
   function updateMetric(key: keyof typeof metrics, value: string) {
     const numeric = key === "ticket" ? Number(value.replace(",", ".")) : Number.parseInt(value, 10);
     setMetrics((current) => {
@@ -3234,10 +3348,10 @@ export default function Home() {
   }
 
   if (!authUser && !isAdmin) {
-    return <AuthScreen mode={authMode} setMode={(mode) => { setAuthMode(mode); setAuthError(""); }} form={authForm} setForm={setAuthForm} error={authError} busy={authBusy} setupAvailable={setupAvailable} onSubmit={handleAuthSubmit} />;
+    return <AuthScreen mode={authMode} setMode={(mode) => { setAuthMode(mode); setAuthError(""); }} form={authForm} setForm={setAuthForm} error={authError} busy={authBusy} setupAvailable={setupAvailable} sharedAccess={IS_SHARED_API} onSubmit={handleAuthSubmit} />;
   }
 
-  if (isAdmin) return <AccountCenter onLogout={handleLogout} externalError={authError} isGithubPages={IS_GITHUB_PAGES} request={apiFetch} />;
+  if (isAdmin) return <AccountCenter onLogout={handleLogout} externalError={authError} isGithubPages={LOCAL_STORAGE_MODE} sharedAccess={IS_SHARED_API} request={apiFetch} />;
   if (!authUser) return null;
 
   const currentGroup = workspaceGroups.find((group) => group.sections.includes(section)) ?? workspaceGroups[0];
@@ -3268,8 +3382,9 @@ export default function Home() {
         </nav>
         <div className="workspace-status">
           <span className={`save-status ${saveStatus}`} role="status" aria-live="polite"><i />{saveStatusLabel}</span>
-          {saveStatus === "conflict" && <button className="sync-reload-button" type="button" onClick={reloadServerState}>Recarregar dados salvos</button>}
-          {(saveStatus === "error" || saveStatus === "offline") && <button className="sync-reload-button" type="button" onClick={() => { void flushPendingState(); }}>{IS_GITHUB_PAGES ? "Tentar salvar" : "Tentar sincronizar"}</button>}
+          {(saveStatus === "error" || saveStatus === "offline") && <button className="sync-reload-button" type="button" onClick={() => { void flushPendingState(); }}>{LOCAL_STORAGE_MODE ? "Tentar salvar" : "Tentar sincronizar"}</button>}
+          {saveStatus === "conflict" && <button className="sync-reload-button" type="button" onClick={() => { void reloadAfterConflict(); }}>Guardar rascunho e carregar atualização</button>}
+          {conflictDraftAvailable && <button className="sync-reload-button" type="button" onClick={downloadConflictDraft}>Baixar rascunho salvo</button>}
           <span>{today}</span>
         </div>
       </div>
@@ -3650,7 +3765,7 @@ export default function Home() {
 
         {section === "catalog" && (
           <div className="catalog-module">
-            <CatalogWorkspace key={`${authUser.id}-${brand}`} brand={brand} userId={authUser.id} currentBrand={currentBrand} brands={brandData} items={filteredCatalog} totalItemCount={catalogItems.length} studiedCatalogCount={studiedCatalogCount} catalogSearch={catalogSearch} catalogFamily={catalogFamily} families={families} assetHref={publicAssetHref} onSelectBrand={selectBrand} onSearchChange={setCatalogSearch} onFamilyChange={setCatalogFamily} onOpenItem={(item, trigger) => { catalogTriggerRef.current = trigger; setSelectedCatalog(item); }} />
+            <CatalogWorkspace key={`${authUser.id}-${brand}-${dataLoadAttempt}`} brand={brand} userId={authUser.id} initialProgress={IS_SHARED_API ? progressStateRef.current.brands?.[brand] : undefined} currentBrand={currentBrand} brands={brandData} items={filteredCatalog} totalItemCount={catalogItems.length} studiedCatalogCount={studiedCatalogCount} catalogSearch={catalogSearch} catalogFamily={catalogFamily} families={families} assetHref={publicAssetHref} onSelectBrand={selectBrand} onSearchChange={setCatalogSearch} onFamilyChange={setCatalogFamily} onOpenItem={(item, trigger) => { catalogTriggerRef.current = trigger; setSelectedCatalog(item); }} />
             {selectedCatalog && <div className="drawer-backdrop" onClick={() => setSelectedCatalog(null)}><aside className="catalog-drawer" ref={catalogDialogRef} role="dialog" aria-modal="true" aria-label={`Ficha de ${selectedCatalog.title}`} onClick={(event) => event.stopPropagation()}><button className="drawer-close" aria-label="Fechar ficha" onClick={() => setSelectedCatalog(null)}>×</button><span className="family-badge">{selectedCatalog.family}</span><h2>{selectedCatalog.title}</h2><p className="drawer-spec">{selectedCatalog.spec}</p><div className="drawer-section"><span className="mini-label">QUANDO INDICAR</span><p>{selectedCatalog.bestFor}</p></div><div className="drawer-section pitch"><span className="mini-label">ARGUMENTO DE VENDA</span><p>“{selectedCatalog.pitch}”</p><div className="drawer-actions"><button className="copy-button" onClick={() => copyMessage(selectedCatalog.pitch)}>Copiar argumento <span>⧉</span></button><button className="copy-button" onClick={() => { setMessageLine(selectedCatalog.title); setSelectedCatalog(null); navigate("messages"); }}>Planejar mensagem <span>→</span></button></div></div><div className="drawer-section"><span className="mini-label">CONFIRMAR ANTES DE FECHAR</span>{selectedCatalog.checks.map((check) => <label className="drawer-check" key={check}><input type="checkbox" checked={drawerChecks[selectedCatalog.id]?.includes(check) ?? false} onChange={() => toggleCatalogCheck(selectedCatalog.id, check)} /><span className="fake-checkbox">✓</span>{check}</label>)}</div>{selectedCatalog.documentHref && <a className="catalog-pdf-link" href={publicAssetHref(selectedCatalog.documentHref)} target="_blank" rel="noreferrer">Abrir catálogo completo em PDF <span>↗</span></a>}<div className="drawer-source"><span>Fonte</span><strong>{selectedCatalog.source}</strong><small>{brandData[selectedCatalog.brand].catalog}</small></div></aside></div>}
           </div>
         )}
@@ -3685,7 +3800,7 @@ export default function Home() {
             <details className="module-reference"><summary>Modelo de gestão em quatro níveis <span>+</span></summary><section className="level-cards"><article><span>01 · BASE</span><h3>Organizar</h3><p>Cliente, número, valor, status, responsável e próxima ação.</p></article><article><span>02 · RITMO</span><h3>Acompanhar</h3><p>Retornos em timing e pendências que não ficam invisíveis.</p></article><article><span>03 · DECISÃO</span><h3>Priorizar</h3><p>Tempo no que tem medida, necessidade e decisão possível.</p></article><article><span>04 · MELHORAR</span><h3>Aprender</h3><p>Registrar objeções e repetir os argumentos que funcionam.</p></article></section></details>
           </div>
         )}
-        <footer className="workspace-footer"><span>MULT PORTAS · GUIA INTERNO</span><span>{IS_GITHUB_PAGES ? "Dados desta conta neste aparelho" : "Dados separados por funcionário"}</span><span>{studiedCatalogCount} catálogos · {studiedBrandCount} marcas</span></footer>
+        <footer className="workspace-footer"><span>MULT PORTAS · GUIA INTERNO</span><span>{LOCAL_STORAGE_MODE ? "Dados desta conta neste aparelho" : "Dados separados por funcionário"}</span><span>{studiedCatalogCount} catálogos · {studiedBrandCount} marcas</span></footer>
       </section>
       {toast && <div className={`toast ${toast.kind}`} role={toast.kind === "error" ? "alert" : "status"} aria-live={toast.kind === "error" ? "assertive" : "polite"}>{toast.kind === "success" ? "✓" : toast.kind === "error" ? "!" : "i"} {toast.message}</div>}
     </main>

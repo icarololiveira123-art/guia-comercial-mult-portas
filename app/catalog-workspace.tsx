@@ -1,6 +1,8 @@
 "use client";
 
-import { type KeyboardEvent, useEffect, useState } from "react";
+import { type KeyboardEvent, useEffect, useRef, useState } from "react";
+import { sharedApiBaseUrl } from "./lib/shared-api-config.mjs";
+import { CLIENT_PROGRESS_EVENT } from "./lib/client-progress.mjs";
 import { CatalogLearning } from "./catalog-learning";
 
 export type WorkspaceBrandId = "dalcomad" | "destak" | "casmavi" | "aluan" | "brimak" | "brasil" | "crv" | "lucasa" | "riobras";
@@ -49,6 +51,7 @@ function readWorkspaceView(key: string): WorkspaceView {
 }
 
 export type CatalogWorkspaceProps = {
+  initialProgress?: { learning?: unknown; studySheet?: unknown; view?: unknown };
   brand: WorkspaceBrandId;
   userId: number;
   currentBrand: WorkspaceBrand;
@@ -67,6 +70,7 @@ export type CatalogWorkspaceProps = {
 };
 
 export function CatalogWorkspace({
+  initialProgress,
   brand,
   userId,
   currentBrand,
@@ -83,11 +87,15 @@ export function CatalogWorkspace({
   onFamilyChange,
   onOpenItem,
 }: CatalogWorkspaceProps) {
-  const viewKey = `mult-portas-guia-catalog-view-v1-user-${userId}-brand-${brand}`;
-  const [view, setView] = useState<WorkspaceView>(() => readWorkspaceView(viewKey));
+  const viewKey = `${sharedApiBaseUrl ? "mult-portas-shared" : "mult-portas-guia"}-catalog-view-v1-user-${userId}-brand-${brand}`;
+  const [view, setView] = useState<WorkspaceView>(() => ["learn", "fiches", "pdfs"].includes(String(initialProgress?.view)) ? initialProgress?.view as WorkspaceView : readWorkspaceView(viewKey));
+  const savedViewRef = useRef(view);
   useEffect(() => {
+    if (view === savedViewRef.current) return;
+    savedViewRef.current = view;
     try { localStorage.setItem(viewKey, view); } catch { /* A consulta continua disponível sem armazenamento. */ }
-  }, [viewKey, view]);
+    if (sharedApiBaseUrl) window.dispatchEvent(new CustomEvent(CLIENT_PROGRESS_EVENT, { detail: { userId, brand, field: "view", value: view } }));
+  }, [viewKey, view, userId, brand]);
   const views: { id: WorkspaceView; label: string; helper: string }[] = [
     { id: "learn", label: "Aprender", helper: "Aulas e exercícios" },
     { id: "fiches", label: "Fichas", helper: "Modelos e detalhes" },
@@ -158,7 +166,7 @@ export function CatalogWorkspace({
           </div>
 
           {view === "learn" && <div className="catalog-view-panel" id="catalog-panel-learn" role="tabpanel" aria-labelledby="catalog-tab-learn" tabIndex={0}>
-            <CatalogLearning key={`${userId}-${brand}`} brand={brand} brandName={currentBrand.short} userId={userId} onOpenFiches={openFichesFromLesson} />
+            <CatalogLearning key={`${userId}-${brand}`} brand={brand} brandName={currentBrand.short} userId={userId} initialProgress={initialProgress} onOpenFiches={openFichesFromLesson} />
           </div>}
 
           {view === "fiches" && <section className="catalog-view-panel catalog-fiches-panel" id="catalog-panel-fiches" role="tabpanel" aria-labelledby="catalog-tab-fiches" tabIndex={0}>

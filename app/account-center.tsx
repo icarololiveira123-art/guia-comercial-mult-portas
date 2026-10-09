@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { importLocalAccounts } from "./lib/local-account-migration.mjs";
 
 type Branch = "Araraquara" | "São Carlos";
 type AccountSummary = {
@@ -37,6 +38,7 @@ type AccountCenterProps = {
   onLogout: () => Promise<void>;
   externalError?: string;
   isGithubPages: boolean;
+  sharedAccess?: boolean;
   request: (path: string, init?: RequestInit, timeoutMs?: number) => Promise<Response>;
 };
 
@@ -75,7 +77,7 @@ async function responseJson<T>(response: Response): Promise<T> {
   }
 }
 
-export function AccountCenter({ onLogout, externalError, isGithubPages, request }: AccountCenterProps) {
+export function AccountCenter({ onLogout, externalError, isGithubPages, sharedAccess = false, request }: AccountCenterProps) {
   const [accounts, setAccounts] = useState<AccountRecord[]>([]);
   const [selectedAccount, setSelectedAccount] = useState<AccountRecord | null>(null);
   const [selectedState, setSelectedState] = useState<Record<string, unknown> | null>(null);
@@ -90,6 +92,8 @@ export function AccountCenter({ onLogout, externalError, isGithubPages, request 
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [importBusy, setImportBusy] = useState(false);
+  const [importProgress, setImportProgress] = useState("");
   const detailsRequestRef = useRef<{ id: number; controller: AbortController } | null>(null);
   const detailsRequestIdRef = useRef(0);
 
@@ -233,6 +237,32 @@ export function AccountCenter({ onLogout, externalError, isGithubPages, request 
     }
   }
 
+  async function syncBrowserAccounts() {
+    if (!sharedAccess || importBusy) return;
+    setImportBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const result = await importLocalAccounts(request, undefined, (progress) => {
+        setImportProgress(`${progress.processed} de ${progress.total}`);
+      });
+      await loadAccounts();
+      const details = [
+        `${result.imported} conta(s) transferida(s)`,
+        result.alreadyImported ? `${result.alreadyImported} já sincronizada(s)` : "",
+        result.conflicts ? `${result.conflicts} usuário(s) já existente(s); registros preservados` : "",
+        result.skipped ? `${result.skipped} cadastro(s) precisam de revisão; originais preservados` : "",
+      ].filter(Boolean).join(" · ");
+      setNotice(result.total ? details : "Não há cadastros antigos neste aparelho para transferir.");
+      if (result.error) setError(result.error);
+    } catch (syncError) {
+      setError(syncError instanceof Error ? syncError.message : "Não foi possível sincronizar os cadastros deste aparelho. Os originais foram preservados.");
+    } finally {
+      setImportBusy(false);
+      setImportProgress("");
+    }
+  }
+
   const visibleAccounts = accounts.filter((account) => {
     const needle = query.trim().toLocaleLowerCase("pt-BR");
     return (!needle || `${account.displayName} ${account.username}`.toLocaleLowerCase("pt-BR").includes(needle))
@@ -253,11 +283,12 @@ export function AccountCenter({ onLogout, externalError, isGithubPages, request 
             <div><strong>MULT PORTAS</strong><span>Gestão de funcionários</span></div>
           </div>
           <div className="account-actions">
+            {sharedAccess && <button className="button account-refresh" type="button" onClick={() => void syncBrowserAccounts()} disabled={importBusy} aria-busy={importBusy}>{importBusy ? `Sincronizando ${importProgress}…` : "Sincronizar contas deste aparelho"}</button>}
             <button className="button primary account-new" type="button" onClick={startCreate}>Novo funcionário <span aria-hidden="true">+</span></button>
             <button className="button account-refresh" type="button" onClick={() => void loadAccounts()} disabled={loading} aria-busy={loading}>
               <span aria-hidden="true">{loading ? "…" : "↻"}</span>{loading ? "Atualizando…" : "Atualizar"}
             </button>
-            <button className="logout-button account-logout" type="button" onClick={() => void onLogout()}>Sair</button>
+            <button className="logout-button account-logout" type="button" disabled={importBusy} onClick={() => void onLogout()}>Sair</button>
           </div>
         </header>
 
