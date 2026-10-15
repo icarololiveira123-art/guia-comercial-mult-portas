@@ -819,6 +819,7 @@ body { background: var(--bg); color: var(--ink); font-family: Inter, ui-sans-ser
 .home-tool-card > svg:first-child { width: 21px; height: 21px; color: #3f724c; }
 .home-tool-card strong { color: #243e2c; font-size: 14px; }
 .home-tool-card > span { max-width: 32ch; padding-right: 14px; font-size: 11px; }
+.home-tool-card .home-tool-download { color: #285449; font-size: 10px; font-weight: 750; line-height: 1.5; }
 .home-tool-arrow { position: absolute; right: 15px; top: 17px; width: 16px; height: 16px; color: #4e7c55; }
 .home-agenda { display: flex; flex-direction: column; min-width: 0; padding: 22px; }
 .home-count { width: 27px; height: 27px; display: grid; place-items: center; border-radius: 50%; color: #285449; background: #e3efce; font-size: 13px; font-weight: 800; }

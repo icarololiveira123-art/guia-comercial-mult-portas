@@ -1,0 +1,59 @@
+{
+  "name": "recorta-planta-windows",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Recorte de plantas baixas em PDFs digitais e escaneados, com processamento local.",
+  "author": "Recorta Planta",
+  "main": "app/main.cjs",
+  "scripts": {
+    "test": "node --test tests/*.test.cjs",
+    "start": "electron .",
+    "dist:win": "electron-builder --win portable --x64",
+    "prepare:web": "node scripts/prepare-web.cjs",
+    "test:interface": "node tests/interface.cjs"
+  },
+  "devDependencies": {
+    "electron": "44.7.2",
+    "electron-builder": "26.15.3",
+    "pdfjs-dist": "5.6.205",
+    "pdf-lib": "1.17.1",
+    "tesseract.js": "7.0.0"
+  },
+  "build": {
+    "appId": "com.recortaplanta.desktop",
+    "productName": "Recorta Planta",
+    "executableName": "RecortaPlanta",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "app/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "npmRebuild": false,
+    "compression": "maximum",
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "signAndEditExecutable": false,
+      "artifactName": "Recorta-Planta-Windows.exe"
+    },
+    "portable": {
+      "requestExecutionLevel": "user",
+      "unpackDirName": "recorta-planta-1.0.0"
+    },
+    "electronLanguages": [
+      "pt-BR",
+      "en-US"
+    ]
+  }
+}

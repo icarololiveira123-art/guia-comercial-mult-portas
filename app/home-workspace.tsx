@@ -56,7 +56,7 @@ export function HomeWorkspace(props: HomeWorkspaceProps) {
 
       <section className="home-tools" aria-labelledby="home-tools-title">
         <div className="home-section-heading"><div><span className="section-kicker">PRONTAS PARA USAR</span><h2 id="home-tools-title">Ferramentas de trabalho</h2></div><span>Escolha uma tarefa</span></div>
-        <div className="home-tool-grid">{tools.map((tool) => <button className="home-tool-card" type="button" key={tool.section} onClick={() => onNavigate(tool.section)}><WorkspaceIcon name={tool.icon} /><strong>{tool.title}</strong><span>{tool.copy}</span><WorkspaceIcon className="home-tool-arrow" name="arrow" /></button>)}</div>
+        <div className="home-tool-grid">{tools.map((tool) => <button className="home-tool-card" type="button" key={tool.section} onClick={() => onNavigate(tool.section)}><WorkspaceIcon name={tool.icon} /><strong>{tool.title}</strong><span>{tool.copy}</span><WorkspaceIcon className="home-tool-arrow" name="arrow" /></button>)}<a className="home-tool-card" href="https://github.com/icarololiveira123-art/guia-comercial-mult-portas/releases/download/recorta-planta-v1.0.0/Recorta-Planta-Windows.exe" download="Recorta-Planta-Windows.exe" referrerPolicy="no-referrer" aria-label="Baixar Recorta Planta para Windows"><WorkspaceIcon name="crop" /><strong>Recorta Planta</strong><span>Separe a planta baixa do projeto em PDF no seu computador.</span><small className="home-tool-download">Baixar para Windows 10/11 · 64 bits</small><WorkspaceIcon className="home-tool-arrow" name="arrow" /></a></div>
       </section>
 
       <section className="home-agenda" aria-labelledby="home-agenda-title">

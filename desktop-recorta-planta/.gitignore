@@ -1,0 +1,8 @@
+node_modules
+release/
+test-results/
+app/web/vendor/
+app/web/icon-192.png
+app/web/icon-512.png
+build/
+*.log
