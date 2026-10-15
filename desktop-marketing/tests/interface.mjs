@@ -1,0 +1,50 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+import { _electron } from 'playwright';
+const require = createRequire(import.meta.url);
+const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const data = fs.mkdtempSync(path.join(os.tmpdir(), 'mult-portas-ui-'));
+const results = path.join(root, 'test-results'); fs.mkdirSync(results, { recursive: true });
+const failures = [];
+const electron = await _electron.launch({ executablePath: require('electron'), args: [...(process.platform === 'linux' ? ['--no-sandbox', '--ozone-platform=headless', '--disable-gpu'] : []), root], env: { ...process.env, MP_DESKTOP_E2E: '1', MP_DESKTOP_TEST_API: '1', MP_DESKTOP_TEST_DATA: data }, timeout: 35_000 });
+try {
+  const page = await electron.firstWindow();
+  page.on('pageerror', error => failures.push(error.message));
+  await page.locator('#login-screen').waitFor();
+  await page.screenshot({ path: path.join(results, 'login.png') });
+  await page.locator('#username').fill('teste'); await page.locator('#password').fill('errada');
+  await page.locator('#login-button').click(); await page.locator('#login-error').filter({ hasText: 'incorretos' }).waitFor();
+  await page.locator('#password').fill('senha-temporaria-de-teste'); await page.locator('#login-button').click();
+  await page.locator('#workspace').waitFor(); await page.locator('#sync-label').filter({ hasText: 'Sincronizado' }).waitFor();
+  assert.equal(await page.locator('.counter-row').count(), 6);
+  for (const field of ['newContacts', 'interacting', 'notInteracting', 'phone', 'inPerson', 'inPersonExisting']) {
+    const input = page.locator(`#count-${field}`); await input.fill('7'); await input.press('Tab');
+  }
+  await page.locator('#sync-label').filter({ hasText: 'Sincronizado' }).waitFor();
+  const report = await page.locator('#report').inputValue();
+  assert.ok(report.includes('Vendedora: EQUIPE MULT PORTAS'));
+  assert.equal((report.match(/: 7/g) ?? []).length, 6);
+  assert.ok(!/\d\d\/\d\d/.test(report));
+  await page.locator('.counter-row').first().getByRole('button', { name: 'Aumentar' }).click();
+  await page.locator('#sync-label').filter({ hasText: 'Sincronizado' }).waitFor();
+  assert.equal(await page.locator('#count-newContacts').inputValue(), '8');
+  await page.locator('#copy').click();
+  const copied = await electron.evaluate(async ({ clipboard }) => clipboard.readText());
+  assert.ok(copied.includes('Contatos novos total: 8'));
+  await page.screenshot({ path: path.join(results, 'workspace.png'), fullPage: true });
+  await page.setViewportSize({ width: 820, height: 650 });
+  await page.screenshot({ path: path.join(results, 'workspace-small.png'), fullPage: true });
+  const dimensions = await page.evaluate(() => ({ width: window.innerWidth, content: document.documentElement.scrollWidth }));
+  assert.ok(dimensions.content <= dimensions.width, 'No horizontal overflow at minimum window size');
+  assert.equal(await electron.evaluate(({ BrowserWindow }) => { const p = BrowserWindow.getAllWindows()[0].webContents.getLastWebPreferences(); return p.contextIsolation && p.sandbox && !p.nodeIntegration && p.webSecurity; }), true);
+  assert.equal(await page.evaluate(() => typeof window.require), 'undefined');
+  assert.equal(await page.evaluate(() => typeof window.process), 'undefined');
+  await page.locator('#logout').click(); await page.locator('#login-screen').waitFor();
+  assert.equal(await page.locator('#workspace').isVisible(), false);
+  assert.deepEqual(failures, []);
+  console.log('PASS: Windows-compatible Electron interface: login rejection, valid login, six counters, manual edits, increment, cloud saves, report, clipboard, logout, minimum size, process isolation.');
+} finally { await electron.close(); fs.rmSync(data, { recursive: true, force: true }); }
