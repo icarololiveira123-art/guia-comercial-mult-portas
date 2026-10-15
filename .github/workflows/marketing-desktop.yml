@@ -13,7 +13,7 @@ permissions:
 
 concurrency:
   group: marketing-desktop-windows
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   windows:
@@ -35,11 +35,6 @@ jobs:
         run: npm test
       - name: Testar a interface no Windows
         run: node tests/interface.mjs
-      - name: Testar proteção dos dados pelo Windows
-        shell: pwsh
-        run: |
-          $p = Start-Process -FilePath './node_modules/electron/dist/electron.exe' -ArgumentList 'tests/vault-windows.mjs' -Wait -PassThru
-          if ($p.ExitCode -ne 0) { throw 'A proteção dos dados falhou.' }
       - name: Gerar executável portátil
         run: npm run build:windows
         env:

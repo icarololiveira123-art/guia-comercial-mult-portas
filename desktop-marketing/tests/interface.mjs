@@ -43,6 +43,15 @@ try {
   assert.equal(await electron.evaluate(({ BrowserWindow }) => { const p = BrowserWindow.getAllWindows()[0].webContents.getLastWebPreferences(); return p.contextIsolation && p.sandbox && !p.nodeIntegration && p.webSecurity; }), true);
   assert.equal(await page.evaluate(() => typeof window.require), 'undefined');
   assert.equal(await page.evaluate(() => typeof window.process), 'undefined');
+  if (process.platform === 'win32') {
+    const protectedData = await electron.evaluate(({ safeStorage }) => {
+      const text = globalThis.crypto.randomUUID();
+      const encrypted = safeStorage.encryptString(text);
+      return { available: safeStorage.isEncryptionAvailable(), protected: !encrypted.includes(Buffer.from(text)), restored: safeStorage.decryptString(encrypted) === text };
+    });
+    assert.deepEqual(protectedData, { available: true, protected: true, restored: true });
+    console.log('PASS: native Windows DPAPI protection and decryption.');
+  }
   await page.locator('#logout').click(); await page.locator('#login-screen').waitFor();
   assert.equal(await page.locator('#workspace').isVisible(), false);
   assert.deepEqual(failures, []);
