@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 
-export type WorkspaceIconName = "home" | "book" | "message" | "work" | "chart" | "arrow" | "mail" | "calendar" | "check";
+export type WorkspaceIconName = "home" | "book" | "message" | "work" | "chart" | "arrow" | "mail" | "calendar" | "check" | "crop";
 
 const paths: Record<WorkspaceIconName, string[]> = {
   home: ["M3 10 12 3l9 7", "M5 9v11h5v-6h4v6h5V9"],
@@ -12,6 +12,7 @@ const paths: Record<WorkspaceIconName, string[]> = {
   mail: ["M3 5h18v14H3z", "m3 5 9 8 9-8"],
   calendar: ["M4 5h16v16H4z", "M8 2v6M16 2v6M4 10h16M8 14h2M14 14h2"],
   check: ["m5 12 4 4L19 6"],
+  crop: ["M6 3v15h15", "M3 6h15v15", "M15 3v3M3 15h3"],
 };
 
 export function WorkspaceIcon({ name, className, style }: { name: WorkspaceIconName; className?: string; style?: CSSProperties }) {

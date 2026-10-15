@@ -2,6 +2,8 @@
 
 Guia comercial para a equipe, com roteiro de atendimento, ferramentas de trabalho, catálogos e aulas para aprender sobre portas e esquadrias desde o início.
 
+O Recorta Planta está disponível na página inicial, em **Ferramentas de trabalho**, com download do aplicativo portátil para Windows 10/11 de 64 bits. O programa recorta plantas baixas de PDFs digitais e escaneados, permite ajustes manuais e funciona offline. O código e a automação da versão Windows estão em `desktop-recorta-planta/`.
+
 **Site no GitHub Pages:** [icarololiveira123-art.github.io/guia-comercial-mult-portas](https://icarololiveira123-art.github.io/guia-comercial-mult-portas/). Usa o endereço do próprio GitHub; não é necessário comprar domínio.
 
 ## O que há no guia

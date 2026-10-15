@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#244c40"><meta name="description" content="Encontre a planta baixa no PDF, ajuste o recorte e baixe mantendo a qualidade original. Seus documentos são processados no próprio navegador.">
+  <title>Recorta Planta</title>
+  <link rel="icon" href="/icon.svg" type="image/svg+xml"><link rel="stylesheet" href="/style.css">
+  <script src="/vendor/pdf-lib.min.js" defer></script><script src="/vendor/ocr/tesseract.min.js" defer></script><script type="module" src="/app.mjs"></script>
+</head>
+<body>
+  <svg class="sprite" aria-hidden="true"><defs>
+    <symbol id="i-crop" viewBox="0 0 24 24"><path d="M6 3v15h15M3 6h15v15M15 3v3M3 15h3"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V3m-5 5 5-5 5 5M4 15v5h16v-5"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v13m-5-5 5 5 5-5M4 16v5h16v-5"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H5v18h14V8l-5-5v5h5M8 12h8M8 16h6"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    <symbol id="i-scan" viewBox="0 0 24 24"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5M3 12h18M7 7h10v10H7z"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3m-4 4v3"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-reset" viewBox="0 0 24 24"><path d="M4 10a8 8 0 1 1 1 8M4 4v6h6"/></symbol>
+    <symbol id="i-left" viewBox="0 0 24 24"><path d="m14 5-7 7 7 7"/></symbol>
+    <symbol id="i-right" viewBox="0 0 24 24"><path d="m10 5 7 7-7 7"/></symbol>
+    <symbol id="i-zoom" viewBox="0 0 24 24"><circle cx="10" cy="10" r="6"/><path d="m15 15 6 6M7 10h6m-3-3v6"/></symbol>
+  </defs></svg>
+  <header class="app-header">
+    <a class="brand" href="/" aria-label="Recorta Planta, início"><span class="brand-icon"><svg><use href="#i-crop"/></svg></span><span>recorta<span class="brand-light">planta</span><span class="brand-dot">.</span></span></a>
+    <div class="header-note"><span class="status-dot"></span>Do projeto, só o que precisa.</div>
+    <div class="header-actions"><button id="installButton" class="text-button" hidden>Instalar app</button><button id="newFile" class="text-button" hidden><svg><use href="#i-plus"/></svg>Novo PDF</button><span class="private-note"><svg><use href="#i-lock"/></svg>Processamento no seu dispositivo</span></div>
+  </header>
+  <main>
+    <section id="welcome" class="welcome">
+      <div class="intro"><span class="eyebrow"><span></span>RECORTE INTELIGENTE DE PDF</span><h1>Uma prancha inteira.<br><em>Só a planta que importa.</em></h1><p>Envie o projeto. Encontre a planta baixa.<br>Baixe o recorte com as medidas e a qualidade original.</p></div>
+      <div class="welcome-grid">
+        <div class="upload-card" id="dropZone">
+          <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
+          <div class="upload-icon"><svg><use href="#i-upload"/></svg><span>PDF</span></div>
+          <h2>Seu próximo recorte começa aqui</h2><p>Arraste o PDF para esta área<br>ou selecione um arquivo do computador.</p>
+          <button id="selectFile" class="primary-button">Selecionar PDF <svg><use href="#i-arrow"/></svg></button>
+          <span class="upload-hint">PDF digital ou escaneado · até 100 MB</span>
+          <div class="upload-divider"><span>Quer conhecer primeiro?</span></div><button id="demoButton" class="demo-button"><svg><use href="#i-scan"/></svg>Testar com um exemplo</button>
+        </div>
+        <div class="example-card" aria-hidden="true">
+          <div class="example-top"><span>DA PRANCHA AO RECORTE</span><span>01 / 03</span></div>
+          <div class="paper-preview">
+            <div class="draft-grid"></div>
+            <svg class="draft" viewBox="0 0 390 350" fill="none">
+              <g stroke="#bfc5be" stroke-width=".8"><path d="M12 15h366v320H12zM245 18v314M249 222h125M249 305h125M310 225v78M252 283h120"/><path d="M267 193v-40h18v-25h48v31h21v34zM264 195h94M257 89h93l-8-31h-76zM269 91v28h70V91M255 121h99"/></g>
+              <g stroke="#3b5045" stroke-width="3"><path d="M61 55h140v228H61zM61 136h140M121 55v81M121 190h80M61 229h85M146 190v93"/><path d="M61 175h60M146 229h55"/></g>
+              <g stroke="#718577" stroke-width="1"><path d="M84 282v-21h21M121 105H98V82M177 136v-22h-22M146 211h21v-21M121 155h-21v20"/><path d="M64 177a21 21 0 0 1 21 21M149 232a21 21 0 0 1 21 21M100 134a21 21 0 0 1 21-21"/><path d="M109 282a21 21 0 0 1-21-21"/></g>
+              <g stroke="#9ca89e" stroke-width=".7"><path d="M48 55v228M44 55h9m-9 228h9M61 42h140m-140-4v8m140-8v8M61 295h140m-140-4v8m140-8v8"/><path d="M69 65h43v27H69zM158 145h35v32h-35zM69 192h24v23H69zM158 243h35v30h-35z"/></g>
+              <g fill="#718577" font-family="Arial" font-size="5"><text x="133" y="106">QUARTO</text><text x="75" y="116">COZINHA</text><text x="80" y="160">SALA</text><text x="156" y="214">BANHO</text><text x="64" y="311">PLANTA BAIXA</text><text x="257" y="248">PROJETO ARQUITETÔNICO</text><text x="112" y="38">8,50</text><text x="112" y="304">8,50</text></g>
+            </svg>
+            <div class="sample-selection"><i></i><i></i><i></i><i></i><span><svg><use href="#i-check"/></svg>Planta baixa encontrada</span></div>
+          </div>
+          <div class="example-caption"><span class="tiny-icon"><svg><use href="#i-crop"/></svg></span><p>Menos prancha.<br><strong>Mais foco no que você precisa.</strong></p><svg class="caption-arrow"><use href="#i-arrow"/></svg></div>
+        </div>
+      </div>
+      <div class="steps"><div><span>01</span><p><strong>Envie seu projeto</strong><small>Uma página ou um PDF com várias pranchas.</small></p></div><div><span>02</span><p><strong>Confira a identificação</strong><small>O app procura a planta. Você ajusta se precisar.</small></p></div><div><span>03</span><p><strong>Baixe só a planta</strong><small>Um novo PDF, pronto para usar e compartilhar.</small></p></div></div>
+      <p class="privacy-footer"><svg><use href="#i-lock"/></svg>Seus PDFs ficam no seu navegador. Nenhum documento é enviado para um servidor.</p>
+    </section>
+    <section id="workspace" class="workspace" hidden>
+      <div class="workspace-heading"><div><span class="eyebrow">SEU ESPAÇO DE RECORTE</span><h1>Confira. Ajuste. <em>Pronto.</em></h1></div><div id="documentStatus" class="status-pill">Aguardando arquivo</div></div>
+      <div class="work-grid">
+        <aside class="controls-panel">
+          <div class="document-card"><span class="file-icon"><svg><use href="#i-file"/></svg></span><div><strong id="fileName"></strong><small id="fileMeta"></small></div></div>
+          <div id="progressArea" class="progress-area" hidden><div class="progress-top"><strong id="progressTitle">Analisando PDF</strong><button id="cancelScan" class="small-link">Parar</button></div><div class="progress-track"><span id="progressFill"></span></div><p id="progressText" aria-live="polite"></p></div>
+          <div class="section-label">PLANTAS ENCONTRADAS <span id="resultCount">0</span></div><div id="results" class="results" aria-label="Plantas identificadas"></div>
+          <div id="noResults" class="no-results" hidden><svg><use href="#i-scan"/></svg><strong>Vamos marcar a planta?</strong><p>Não encontrei um título claro nesta página. Use a leitura de imagem ou desenhe o recorte.</p></div>
+          <div class="control-section"><div class="section-label">AJUSTAR RECORTE <span class="subtle">OPCIONAL</span></div><p class="control-help">Mova a seleção ou arraste os cantos. Para criar outra área, ative o desenho.</p><button id="drawMode" class="outline-button"><svg><use href="#i-crop"/></svg>Desenhar nova área</button><div class="small-actions"><button id="resetCrop" class="small-link"><svg><use href="#i-reset"/></svg>Restaurar</button><button id="ocrButton" class="small-link"><svg><use href="#i-scan"/></svg>Ler imagem</button></div><label class="margin-label" for="margin">Margem adicional <output id="marginValue">0 mm</output></label><input id="margin" type="range" min="0" max="15" step="1" value="0"><p class="margin-tip">Confira se as cotas e as observações ficaram dentro da seleção.</p></div>
+          <div class="export-card"><div class="export-top"><div><span class="eyebrow">PRÉVIA DO RECORTE</span><p id="cropSize">—</p></div><span class="pdf-tag">PDF</span></div><div class="mini-preview"><canvas id="cropPreview"></canvas></div><button id="downloadButton" class="primary-button" disabled><svg><use href="#i-download"/></svg>Baixar planta em PDF</button><button id="downloadAll" class="all-button" hidden>Baixar todas as plantas</button><small>Qualidade e medidas do arquivo original.</small></div>
+        </aside>
+        <div class="viewer-panel"><div class="viewer-toolbar"><div class="page-navigation"><button id="previousPage" class="icon-button" aria-label="Página anterior"><svg><use href="#i-left"/></svg></button><label for="pageSelect" class="sr-only">Página do PDF</label><select id="pageSelect"></select><button id="nextPage" class="icon-button" aria-label="Próxima página"><svg><use href="#i-right"/></svg></button></div><div class="viewer-legend"><span></span>Área que será salva</div><button id="zoomButton" class="zoom-button"><svg><use href="#i-zoom"/></svg><span>Focar planta</span></button></div>
+          <div id="viewerScroll" class="viewer-scroll"><div id="canvasFrame" class="canvas-frame"><canvas id="pdfCanvas" aria-label="Página do PDF e seleção do recorte"></canvas><div id="selectionLayer" class="selection-layer" role="application" aria-label="Área de recorte. Arraste os cantos para ajustar."><div id="selection" class="selection" tabindex="0" role="img" aria-label="Recorte selecionado. Use as setas para mover, Shift e setas para redimensionar."><span class="selection-label"><svg><use href="#i-crop"/></svg><span id="selectionCaption">Planta baixa</span></span><button class="resize-handle nw" data-handle="nw" aria-label="Ajustar canto superior esquerdo"></button><button class="resize-handle ne" data-handle="ne" aria-label="Ajustar canto superior direito"></button><button class="resize-handle sw" data-handle="sw" aria-label="Ajustar canto inferior esquerdo"></button><button class="resize-handle se" data-handle="se" aria-label="Ajustar canto inferior direito"></button></div></div></div></div>
+          <div class="viewer-footer"><span id="viewerHint"><svg><use href="#i-check"/></svg>Confira a seleção antes de baixar.</span><span>O PDF original não é alterado.</span></div>
+        </div>
+      </div>
+    </section>
+  </main>
+  <input id="fileInput" type="file" accept="application/pdf,.pdf" hidden>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  <dialog id="errorDialog"><div class="dialog-icon"><svg><use href="#i-file"/></svg></div><h2 id="errorTitle">Não foi possível abrir o PDF</h2><p id="errorMessage"></p><button id="closeError" class="primary-button">Entendi</button></dialog>
+</body>
+</html>

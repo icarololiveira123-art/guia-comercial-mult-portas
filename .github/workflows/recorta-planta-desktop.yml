@@ -1,0 +1,67 @@
+name: Recorta Planta para Windows
+
+on:
+  push:
+    branches: [feat/recorta-planta-download]
+    paths:
+      - 'desktop-recorta-planta/**'
+      - '.github/workflows/recorta-planta-desktop.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: recorta-planta-windows
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: desktop-recorta-planta
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: desktop-recorta-planta/package-lock.json
+      - name: Instalar dependências fixadas
+        run: npm ci --no-fund
+      - name: Preparar o aplicativo offline
+        run: npm run prepare:web
+      - name: Testar os arquivos locais
+        run: npm test
+      - name: Testar leitura, OCR, ajustes e download no Windows
+        run: npm run test:interface
+      - name: Gerar executável portátil
+        run: npm run dist:win
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Abrir o executável no Windows
+        shell: pwsh
+        run: ./tests/smoke-windows.ps1
+      - name: Registrar integridade
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash 'release/Recorta-Planta-Windows.exe' -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  Recorta-Planta-Windows.exe" | Out-File release/SHA256.txt -Encoding utf8
+      - name: Guardar o executável e os resultados
+        uses: actions/upload-artifact@v4
+        with:
+          name: Recorta-Planta-Windows
+          path: |
+            desktop-recorta-planta/release/*.exe
+            desktop-recorta-planta/release/SHA256.txt
+            desktop-recorta-planta/test-results/native-smoke-report.json
+      - name: Disponibilizar download no site
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view recorta-planta-v1.0.0 --repo '${{ github.repository }}' *> $null
+          if ($LASTEXITCODE -eq 0) { Write-Output 'A versão já está disponível.'; exit 0 }
+          gh release create recorta-planta-v1.0.0 'release/Recorta-Planta-Windows.exe' 'release/SHA256.txt' --repo '${{ github.repository }}' --target '${{ github.sha }}' --title 'Recorta Planta para Windows 1.0.0' --notes 'Aplicativo portátil para Windows 10/11 de 64 bits. Identifica plantas baixas em PDFs digitais e escaneados, permite ajustar o recorte e salva um novo PDF. Todos os componentes estão incluídos para uso offline. Confira o enquadramento antes de baixar. Disponível em Ferramentas de trabalho no Guia Comercial Mult Portas.'
