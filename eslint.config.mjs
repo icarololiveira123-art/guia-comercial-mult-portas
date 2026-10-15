@@ -14,6 +14,7 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     // The desktop package has its own runtime, dependencies and checks.
     "desktop-marketing/**",
+    "desktop-recorta-planta/**",
   ]),
 ]);
 
