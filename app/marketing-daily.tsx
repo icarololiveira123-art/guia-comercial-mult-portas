@@ -77,6 +77,11 @@ export function MarketingDaily({ seller, state, onChange }: Props) {
       <div className="marketing-date"><WorkspaceIcon name="calendar" /><span>{isToday ? "HOJE" : "HISTÓRICO"}<strong>{formatMarketingDate(date)}</strong></span></div>
     </header>
 
+    <section className="marketing-desktop-download" aria-labelledby="marketing-desktop-title">
+      <div><span className="section-kicker">TAMBÉM NO SEU COMPUTADOR</span><h2 id="marketing-desktop-title">Seu marketing diário no Windows.</h2><p>Use o mesmo login e mantenha seus registros sincronizados com o site.</p></div>
+      <div className="marketing-desktop-actions"><a className="button dark" href="https://github.com/icarololiveira123-art/guia-comercial-mult-portas/releases/download/marketing-desktop-v1.0.0/Marketing-Diario-Mult-Portas-1.0.0-Windows.exe" download="Marketing-Diario-Mult-Portas-1.0.0-Windows.exe" referrerPolicy="no-referrer" aria-describedby="marketing-desktop-requirements">Baixar aplicativo para Windows <WorkspaceIcon name="arrow" /></a><small id="marketing-desktop-requirements">Windows 10/11 · 64 bits</small></div>
+    </section>
+
     <div className="marketing-layout">
       <section className="marketing-board" aria-labelledby="marketing-counters-title">
         <div className="marketing-board-head"><div><span className="section-kicker">{isToday ? "SEU MOVIMENTO" : "DIA ENCERRADO"}</span><h2 id="marketing-counters-title">{isToday ? "Cada contato conta." : "Resumo do dia"}</h2></div><span className="marketing-seller"><WorkspaceIcon name="work" />{day.seller}</span></div>
