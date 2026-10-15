@@ -1,0 +1,61 @@
+{
+  "name": "mult-portas-marketing",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Marketing diário da Mult Portas para Windows",
+  "author": "Mult Portas",
+  "license": "UNLICENSED",
+  "type": "module",
+  "main": "desktop/main.mjs",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test tests/*.test.mjs",
+    "build:windows": "electron-builder --win portable --x64 --publish never",
+    "build:linux": "electron-builder --linux dir --publish never"
+  },
+  "devDependencies": {
+    "electron": "44.7.2",
+    "electron-builder": "26.15.3",
+    "playwright": "1.62.1"
+  },
+  "build": {
+    "appId": "br.com.multportas.marketing",
+    "productName": "Marketing Diário - Mult Portas",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "desktop/**/*",
+      "build/icon.png",
+      "build/icon.ico",
+      "app/lib/marketing-daily.mjs",
+      "app/lib/shared-api-client.mjs",
+      "package.json"
+    ],
+    "asar": true,
+    "compression": "maximum",
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "signAndEditExecutable": false,
+      "artifactName": "Marketing-Diario-Mult-Portas-1.0.0-Windows.exe"
+    },
+    "portable": {
+      "requestExecutionLevel": "user",
+      "unpackDirName": "MultPortasMarketing100"
+    },
+    "linux": {
+      "target": "dir",
+      "category": "Office",
+      "icon": "build/icon.png"
+    }
+  }
+}

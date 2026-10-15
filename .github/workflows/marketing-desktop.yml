@@ -1,0 +1,64 @@
+name: Marketing diário para Windows
+
+on:
+  push:
+    branches: [feat/marketing-desktop]
+    paths:
+      - 'desktop-marketing/**'
+      - '.github/workflows/marketing-desktop.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: marketing-desktop-windows
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: desktop-marketing
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: desktop-marketing/package-lock.json
+      - name: Instalar dependências fixadas
+        run: npm ci --no-fund
+      - name: Testar sincronização e isolamento de contas
+        run: npm test
+      - name: Testar a interface no Windows
+        run: node tests/interface.mjs
+      - name: Gerar executável portátil
+        run: npm run build:windows
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Abrir e encerrar o executável no Windows
+        shell: pwsh
+        run: ./tests/smoke-windows.ps1
+      - name: Registrar integridade
+        shell: pwsh
+        run: |
+          $file = 'release/Marketing-Diario-Mult-Portas-1.0.0-Windows.exe'
+          $hash = (Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  Marketing-Diario-Mult-Portas-1.0.0-Windows.exe" | Out-File release/SHA256.txt -Encoding utf8
+      - name: Guardar executável e imagens de verificação
+        uses: actions/upload-artifact@v4
+        with:
+          name: Marketing-Diario-Windows
+          path: |
+            desktop-marketing/release/*.exe
+            desktop-marketing/release/SHA256.txt
+            desktop-marketing/test-results/*.png
+      - name: Disponibilizar versão testada
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create marketing-desktop-v1.0.0 'release/Marketing-Diario-Mult-Portas-1.0.0-Windows.exe' 'release/SHA256.txt' --target '${{ github.sha }}' --title 'Marketing Diário para Windows 1.0.0' --notes 'Aplicativo portátil para Windows 10/11 de 64 bits. Use o mesmo login do site. Inclui seis contadores, histórico, relatório sem data, proteção local pelo Windows e sincronização por usuário. O login inicial e a sincronização precisam de internet.'
