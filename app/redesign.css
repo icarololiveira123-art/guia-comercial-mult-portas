@@ -978,3 +978,16 @@ body { background: var(--bg); color: var(--ink); font-family: Inter, ui-sans-ser
   .marketing-history-head, .marketing-history-notice { align-items: flex-start; flex-direction: column; }
   .marketing-history-list { grid-template-columns: 1fr; }
 }
+
+/* Direct desktop download within the daily marketing workspace. */
+.marketing-desktop-download { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 22px; padding: 20px 24px; border: 1px solid #cbd8c3; border-radius: 12px; background: #edf2e7; }
+.marketing-desktop-download h2 { margin: 7px 0 8px; color: #19392f; font-family: var(--editorial); font-size: 23px; font-weight: 500; letter-spacing: -.025em; }
+.marketing-desktop-download p { margin: 0; color: #526450; font-size: 12px; line-height: 1.7; }
+.marketing-desktop-actions { display: grid; justify-items: end; flex: 0 0 auto; gap: 8px; }
+.marketing-desktop-actions .button { display: inline-flex; align-items: center; justify-content: center; gap: 12px; min-height: 46px; text-align: center; text-decoration: none; }
+.marketing-desktop-actions .button svg { flex: 0 0 auto; width: 19px; height: 19px; transform: rotate(90deg); }
+.marketing-desktop-actions small { color: #65775f; font-size: 10px; }
+@media (max-width: 760px) {
+  .marketing-desktop-download { flex-direction: column; align-items: stretch; gap: 16px; padding: 20px; }
+  .marketing-desktop-actions { justify-items: stretch; }
+}
