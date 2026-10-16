@@ -992,3 +992,169 @@ body { background: var(--bg); color: var(--ink); font-family: Inter, ui-sans-ser
   .marketing-desktop-download { flex-direction: column; align-items: stretch; gap: 16px; padding: 20px; }
   .marketing-desktop-actions { justify-items: stretch; }
 }
+
+/* Customer quote requests, editable drafts and durable revision history. */
+.quote-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 22px; margin-bottom: 24px; }
+.quote-heading h1 { margin: 9px 0 12px; font-family: var(--editorial); font-size: clamp(34px,4vw,51px); font-weight: 500; letter-spacing: -.04em; }
+.quote-heading p { max-width: 560px; color: var(--muted); font-size: 14px; line-height: 1.65; }
+.quote-heading .button { flex: 0 0 auto; display: flex; align-items: center; gap: 25px; min-height: 46px; margin-top: 12px; }
+.quote-heading .button span { font-size: 22px; }
+.quote-metrics { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); border: 1px solid #cbd7c4; border-radius: 11px; background: #eaf0e2; overflow: hidden; }
+.quote-metrics > div { padding: 18px 22px; border-right: 1px solid #cbd7c4; }
+.quote-metrics > div:last-child { border-right: 0; }
+.quote-metrics span { display: block; color: #5a6b56; font-size: 11px; font-weight: 650; }
+.quote-metrics strong { display: block; margin-top: 5px; color: #285449; font-family: var(--editorial); font-size: 31px; font-weight: 500; }
+.quote-feedback { min-height: 22px; margin: 13px 0; color: #285449; font-size: 12px; line-height: 1.65; }
+.quote-layout { display: grid; grid-template-columns: minmax(0,1.05fr) minmax(0,1fr); gap: 22px; align-items: start; }
+.quote-ledger, .quote-editor, .quote-history { min-width: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.quote-ledger-head, .quote-editor-head { padding: 25px 25px 21px; }
+.quote-ledger h2, .quote-editor h2, .quote-history h2 { margin: 8px 0 10px; color: #19392f; font-family: var(--editorial); font-size: 29px; font-weight: 500; letter-spacing: -.03em; line-height: 1.18; overflow-wrap: anywhere; }
+.quote-ledger-head p, .quote-editor-head p, .quote-history-heading p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.7; }
+.quote-editor-head { border-radius: 11px 11px 0 0; border-bottom: 1px solid #d6dfcc; background: #edf2e7; }
+.quote-editor h2:focus { outline-offset: 5px; }
+.quote-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin: 0 25px 19px; padding: 4px; border: 1px solid #d5ddce; border-radius: 8px; background: #f1f4eb; }
+.quote-tabs button { min-height: 42px; padding: 8px 10px; border: 0; border-radius: 5px; color: #63715e; background: transparent; font-size: 12px; font-weight: 750; }
+.quote-tabs button[aria-pressed="true"] { color: #fff; background: #285449; }
+.quote-filters { display: grid; grid-template-columns: minmax(0,1.2fr) minmax(0,1fr); gap: 12px; padding: 0 25px 22px; border-bottom: 1px solid var(--soft-line); }
+.quote-page label { display: block; min-width: 0; color: #344d3d; font-size: 12px; font-weight: 700; line-height: 1.5; }
+.quote-page label small { color: #71806a; font-size: 10px; font-weight: 400; }
+.quote-page label > span[aria-hidden="true"] { color: #8c5f3f; }
+.quote-page input:not([type="checkbox"]), .quote-page select, .quote-page textarea { box-sizing: border-box; display: block; width: 100%; max-width: 100%; min-width: 0; min-height: 44px; margin-top: 7px; padding: 11px 12px; border: 1px solid #cbd6c5; border-radius: 7px; color: #263e2e; background: #fffefa; font-family: inherit; font-size: 13px; font-weight: 400; line-height: 1.55; }
+.quote-page textarea { resize: vertical; }
+.quote-page input::placeholder, .quote-page textarea::placeholder { color: #7c8675; opacity: 1; }
+.quote-page input:focus, .quote-page textarea:focus, .quote-page select:focus { border-color: #577a4e; outline: 2px solid #d1e1be; outline-offset: 1px; }
+.quote-page input[type="date"] { appearance: none; }
+.quote-page input[type="date"]::-webkit-date-and-time-value { text-align: left; }
+.quote-page button:disabled { opacity: .45; cursor: default; }
+.quote-list { min-height: 160px; }
+.quote-record { padding: 23px 25px; border-bottom: 1px solid var(--soft-line); }
+.quote-record.is-selected { border-left: 3px solid #73975c; padding-left: 22px; background: #f0f4e8; }
+.quote-record-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.quote-record-top > div { min-width: 0; }
+.quote-record h3 { margin: 0; color: #254d3b; font-size: 16px; font-weight: 750; line-height: 1.5; overflow-wrap: anywhere; }
+.quote-record-top p { margin: 5px 0 0; color: var(--muted); font-size: 11px; line-height: 1.6; }
+.quote-badge { flex: 0 0 auto; padding: 5px 8px; border: 1px solid #ded0b6; border-radius: 4px; color: #7a6032; background: #f5eedf; font-size: 10px; font-weight: 700; }
+.quote-badge.sent { border-color: #b9d0af; color: #325d36; background: #e9f1df; }
+.quote-record-preview { display: -webkit-box; margin: 15px 0; color: #53634e; font-size: 12px; line-height: 1.7; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.quote-record-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 15px; color: #75816d; font-size: 10px; }
+.quote-record-meta strong { margin-left: auto; color: #285449; font-size: 15px; font-weight: 700; }
+.quote-archive-label { width: 100%; color: #7b664b; }
+.quote-record-actions { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 14px; }
+.quote-record-actions button { min-height: 34px; padding: 4px 0; border: 0; color: #285449; background: none; font-size: 11px; font-weight: 750; text-align: left; text-decoration: underline; text-underline-offset: 4px; }
+.quote-record-actions button:last-child { color: #796248; }
+.quote-loading { padding: 20px 25px; color: #607256; font-size: 12px; }
+.quote-load-more { display: block; width: calc(100% - 50px); min-height: 44px; margin: 22px 25px; border: 1px solid #cad6c0; background: #edf2e7; color: #285449; text-align: center; }
+.quote-ledger-note { margin: 0; padding: 18px 25px; color: #75816d; font-size: 11px; line-height: 1.7; }
+.quote-empty { display: grid; justify-items: start; gap: 10px; padding: 35px 25px; }
+.quote-empty svg { width: 30px; height: 30px; color: #7c9a6c; }
+.quote-empty strong { color: #385746; font-size: 14px; }
+.quote-empty p { max-width: 310px; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.7; }
+.quote-editor form { padding: 24px 25px; }
+.quote-editor fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.quote-field-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px 14px; }
+.quote-field-full { grid-column: 1 / -1; }
+.quote-items-head { display: flex; align-items: end; justify-content: space-between; gap: 12px; margin-top: 30px; }
+.quote-items-head h3 { margin: 6px 0 0; color: #285449; font-size: 18px; font-weight: 750; }
+.quote-items-head > span { color: #77846e; font-size: 10px; }
+.quote-field-help { margin: 10px 0 16px; color: #718068; font-size: 11px; line-height: 1.65; }
+.quote-form-items { display: grid; gap: 14px; }
+.quote-form-item { display: grid; gap: 13px; min-width: 0; padding: 17px; border: 1px solid #d6dfce; border-radius: 8px; background: #f5f7ef; }
+.quote-item-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.quote-item-head strong { color: #638057; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; }
+.quote-item-head button { min-height: 28px; padding: 2px 0; border: 0; color: #8b6650; background: transparent; font-size: 10px; text-decoration: underline; text-underline-offset: 3px; }
+.quote-item-measures { display: grid; grid-template-columns: minmax(0,1fr) 100px; gap: 12px; }
+.quote-add-item { width: 100%; min-height: 44px; margin-top: 13px; border: 1px dashed #a8bea0; color: #285449; background: #f0f5e8; font-size: 12px; text-align: center; }
+.quote-value-box { margin: 26px 0 21px; padding: 19px; border: 1px solid #c7d8b8; border-radius: 8px; background: #eaf1e0; }
+.quote-value-box label { color: #285449; font-size: 13px; }
+.quote-currency-input { display: flex; align-items: center; gap: 9px; margin-top: 9px; }
+.quote-currency-input > span { color: #58734c; font-size: 20px; }
+.quote-currency-input input { margin-top: 0!important; font-size: 20px!important; font-variant-numeric: tabular-nums; }
+.quote-value-box p { margin: 11px 0 0; color: #66775b; font-size: 11px; line-height: 1.65; }
+.quote-sent-check { display: flex!important; align-items: flex-start; gap: 12px; margin-top: 21px; padding: 17px; border: 1px solid #d3dccb; border-radius: 7px; background: #f2f5eb; cursor: pointer; }
+.quote-sent-check input { flex: 0 0 auto; width: 19px; height: 19px; margin: 1px 0 0; accent-color: #285449; }
+.quote-sent-check span { min-width: 0; }
+.quote-sent-check strong { display: block; color: #285449; font-size: 12px; }
+.quote-sent-check small { display: block; margin-top: 4px; line-height: 1.6; }
+.quote-save-row { display: flex; align-items: center; gap: 13px; flex-wrap: wrap; margin-top: 24px; }
+.quote-save-row button { min-height: 47px; padding: 12px 23px; }
+.quote-save-row > span { flex: 1 1 130px; color: #7d8168; font-size: 10px; line-height: 1.6; }
+.quote-form-note { margin: 16px 0 0; color: #7a846f; font-size: 10px; line-height: 1.8; }
+.quote-error { margin: 16px 25px; padding: 15px; border: 1px solid #d9b8a8; border-radius: 7px; color: #834934; background: #fcf2e9; font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+.quote-error p { margin: 0 0 10px; }
+.quote-editor form .quote-error { margin: 18px 0 0; }
+.quote-warning { margin: 18px 25px 0; padding: 17px; border: 1px solid #d6c49e; border-radius: 7px; color: #776039; background: #faf4e5; font-size: 12px; line-height: 1.7; }
+.quote-warning p { margin: 7px 0 12px; }
+.quote-warning details { margin-bottom: 15px; }
+.quote-warning summary { cursor: pointer; font-weight: 700; }
+.quote-warning .quote-snapshot { padding: 15px 0; }
+.quote-editor form .quote-warning { margin: 18px 0 0; }
+.quote-inline-actions { display: flex; flex-wrap: wrap; gap: 9px; }
+.quote-inline-actions .button { min-height: 40px; font-size: 11px; }
+.quote-history { margin-top: 25px; padding: 25px; }
+.quote-history-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; padding-bottom: 22px; }
+.quote-history-heading > div { min-width: 0; }
+.quote-history-heading .button { flex: 0 0 auto; border: 1px solid #cbd7c1; }
+.quote-versions > details { border-top: 1px solid #d7e0ce; }
+.quote-versions > details:last-child { border-bottom: 1px solid #d7e0ce; }
+.quote-versions summary { display: flex; align-items: center; gap: 15px; padding: 19px 3px; list-style: none; cursor: pointer; }
+.quote-versions summary::-webkit-details-marker { display: none; }
+.quote-version-index { flex: 0 0 auto; color: #83a06f; font-family: var(--editorial); font-size: 25px; }
+.quote-versions summary > span:nth-child(2) { display: grid; min-width: 0; gap: 5px; }
+.quote-versions summary strong { color: #365b42; font-size: 13px; overflow-wrap: anywhere; }
+.quote-versions summary small { color: #7a866e; font-size: 10px; }
+.quote-version-amount { margin-left: auto; color: #426d45; font-size: 12px; font-weight: 700; }
+.quote-versions summary > span:last-child { color: #8b9e7c; font-size: 21px; }
+.quote-snapshot { padding: 0 0 24px 41px; color: #566b4c; font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+.quote-snapshot dl { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 15px; margin: 0 0 20px; }
+.quote-snapshot dt { color: #87937c; font-size: 10px; }
+.quote-snapshot dd { margin: 4px 0 0; color: #36593e; }
+.quote-snapshot ol { margin: 0 0 20px; padding-left: 18px; }
+.quote-snapshot li { margin: 10px 0; padding-left: 4px; }
+.quote-snapshot p { margin: 4px 0; white-space: pre-wrap; }
+.quote-snapshot strong { white-space: pre-wrap; }
+.quote-copy-fallback { margin-bottom: 20px; padding: 18px; border: 1px solid #c2d1b7; border-radius: 8px; background: #edf3e3; }
+.quote-copy-fallback .button { margin-top: 12px; }
+.quote-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+@media (max-width: 1180px) {
+  .quote-layout { grid-template-columns: minmax(0,1fr) minmax(0,1.05fr); gap: 16px; }
+  .quote-ledger-head, .quote-editor-head { padding: 21px 20px; }
+  .quote-tabs { margin-right: 20px; margin-left: 20px; }
+  .quote-filters { grid-template-columns: 1fr; padding-right: 20px; padding-left: 20px; }
+  .quote-record { padding-right: 20px; padding-left: 20px; }
+  .quote-record.is-selected { padding-left: 17px; }
+  .quote-editor form { padding: 21px 20px; }
+  .quote-field-grid { grid-template-columns: 1fr; }
+  .quote-warning { margin-right: 20px; margin-left: 20px; }
+}
+@media (max-width: 900px) {
+  .quote-layout { grid-template-columns: 1fr; }
+  .quote-editor { grid-row: 1; }
+  .quote-field-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .quote-filters { grid-template-columns: minmax(0,1.2fr) minmax(0,1fr); }
+  .quote-snapshot dl { grid-template-columns: repeat(2,minmax(0,1fr)); }
+}
+@media (max-width: 560px) {
+  .quote-heading { flex-direction: column; gap: 5px; }
+  .quote-heading h1 { font-size: 35px; }
+  .quote-heading .button { width: 100%; justify-content: space-between; margin-top: 8px; }
+  .quote-metrics { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .quote-metrics > div { padding: 15px 17px; }
+  .quote-metrics > div:nth-child(2) { border-right: 0; }
+  .quote-metrics > div:nth-child(-n+2) { border-bottom: 1px solid #cbd7c4; }
+  .quote-metrics span { font-size: 10px; }
+  .quote-metrics strong { font-size: 27px; }
+  .quote-field-grid, .quote-filters { grid-template-columns: 1fr; }
+  .quote-form-item { padding: 14px; }
+  .quote-item-measures { grid-template-columns: minmax(0,1fr) 82px; gap: 9px; }
+  .quote-sent-check { padding: 13px; }
+  .quote-record-top { flex-wrap: wrap; }
+  .quote-record-meta strong { margin-left: 0; }
+  .quote-history { padding: 20px; }
+  .quote-history-heading { flex-direction: column; gap: 15px; }
+  .quote-version-amount { max-width: 85px; text-align: right; overflow-wrap: anywhere; }
+  .quote-versions summary { gap: 10px; }
+  .quote-snapshot { padding-left: 0; }
+  .quote-snapshot dl { gap: 12px; }
+  .quote-save-row { align-items: stretch; flex-direction: column; }
+  .quote-save-row > span { flex: initial; text-align: center; }
+}

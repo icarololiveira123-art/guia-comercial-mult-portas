@@ -26,6 +26,7 @@ class MemoryStore {
   calls = [];
   beforeExecute = null;
   workspaceAccesses = [];
+  quotes = new Map();
 
   constructor(clock) { this.clock = clock; }
   session(auth) {
@@ -51,7 +52,8 @@ class MemoryStore {
     this.calls.push(action);
     if (this.beforeExecute) await this.beforeExecute(action, payload, auth);
     const workspaceActions = ["workspace_open", "workspace_read", "workspace_save"];
-    const protectedActions = ["resolve_session", "get_state", "save_state", "update_user", "list_users", "get_user_detail", "admin_create_user", "admin_update_user", "delete_user", "import_local", ...workspaceActions];
+    const quoteActions = ["quote_list", "quote_get", "quote_history", "quote_create", "quote_update", "quote_action"];
+    const protectedActions = ["resolve_session", "get_state", "save_state", "update_user", "list_users", "get_user_detail", "admin_create_user", "admin_update_user", "delete_user", "import_local", ...workspaceActions, ...quoteActions];
     let session;
     if (protectedActions.includes(action)) {
       session = this.session(auth);
@@ -63,7 +65,13 @@ class MemoryStore {
         const target = this.users.get(payload.userId);
         if (!target || target.deleted) return { status: "not-found" };
       }
+      if (quoteActions.includes(action)) {
+        if (session.role !== "admin" && (session.role !== "user" || session.userId !== payload.userId)) return { status: "forbidden" };
+        const target = this.users.get(payload.userId);
+        if (!target || target.deleted) return { status: "not-found" };
+      }
     }
+    if (quoteActions.includes(action)) return this.quoteExecute(action, payload);
     if (action === "get_access_proof") return { proof: this.proof };
     if (action === "rate_limit") {
       const old = this.rates.get(payload.bucket);
@@ -159,6 +167,77 @@ class MemoryStore {
     }
     throw new Error(`Unknown store action ${action}`);
   }
+
+  // The quote ledger is deliberately separate from replaceable workspace JSON.
+  // This is a behavioral backend fixture; the real SQL has its own rollback QA.
+  quoteExecute(action, payload) {
+    const owned = [...this.quotes.values()].filter(entry => entry.userId === payload.userId);
+    const selected = this.quotes.get(payload.id);
+    const entry = selected?.userId === payload.userId ? selected : null;
+    if (action === "quote_list") {
+      const requests = owned.map(item => item.record).filter(item =>
+        (payload.scope === "history" || !item.archivedAt)
+        && (payload.filter === "all" || item.sent === (payload.filter === "sent"))
+        && (!payload.search || item.clientName.toLowerCase().includes(payload.search.toLowerCase()))
+        && (!payload.cursorId || compareQuoteKeys(item, { createdAt: payload.cursorAt, id: payload.cursorId }) < 0))
+        .sort((left, right) => -compareQuoteKeys(left, right)).slice(0, 26);
+      return clone({ requests, counts: { total: owned.length,
+        pending: owned.filter(item => !item.record.archivedAt && !item.record.sent).length,
+        sent: owned.filter(item => !item.record.archivedAt && item.record.sent).length,
+        archived: owned.filter(item => item.record.archivedAt).length } });
+    }
+    if (["quote_get", "quote_history"].includes(action)) {
+      if (!entry) return { status: "quote-not-found" };
+      if (action === "quote_get") return { request: clone(entry.record) };
+      return clone({ request: entry.record, versions: entry.versions.filter(version =>
+        payload.beforeRevision === undefined || version.revision < payload.beforeRevision).slice().reverse().slice(0, 26) });
+    }
+    const input = clone(payload);
+    delete input.userId;
+    const prior = entry?.mutations.get(payload.mutationId);
+    if (prior) return JSON.stringify(prior) === JSON.stringify({ action, input })
+      ? { request: clone(entry.record), replayed: true }
+      : { status: "quote-conflict", request: clone(entry.record) };
+    const now = new Date(this.clock()).toISOString();
+    let target = entry;
+    let change;
+    if (action === "quote_create") {
+      if (selected) return { status: "quote-conflict", ...(entry ? { request: clone(entry.record) } : {}) };
+      target = { userId: payload.userId, record: { ...clone(payload.data), id: payload.id, revision: 1,
+        createdAt: now, updatedAt: now, sentAt: payload.data.sent ? now : null, archivedAt: null }, versions: [], mutations: new Map() };
+      this.quotes.set(payload.id, target);
+      change = "created";
+    } else {
+      if (!entry) return { status: "quote-not-found" };
+      if (entry.record.revision !== payload.baseRevision) return { status: "quote-conflict", request: clone(entry.record) };
+      const wasSent = entry.record.sent;
+      if (action === "quote_update") { Object.assign(entry.record, clone(payload.data)); change = "updated"; }
+      else {
+        change = payload.action;
+        if (change === "sent") entry.record.sent = true;
+        if (change === "unsent") entry.record.sent = false;
+        if (change === "archived") entry.record.archivedAt = now;
+        if (change === "restored") entry.record.archivedAt = null;
+      }
+      entry.record.sentAt = entry.record.sent ? wasSent ? entry.record.sentAt : now : null;
+      entry.record.updatedAt = now;
+      entry.record.revision += 1;
+    }
+    target.mutations.set(payload.mutationId, { action, input });
+    target.versions.push({ revision: target.record.revision, action: change, changedAt: now, snapshot: clone(target.record) });
+    return { request: clone(target.record) };
+  }
+}
+
+function quoteMicros(value) {
+  const fraction = /\.(\d+)(?:Z|[+-]\d\d:\d\d)$/.exec(value)?.[1] ?? "";
+  return BigInt(Date.parse(value)) * 1_000n + BigInt(fraction.padEnd(6, "0").slice(3, 6));
+}
+
+function compareQuoteKeys(left, right) {
+  const leftTime = quoteMicros(left.createdAt);
+  const rightTime = quoteMicros(right.createdAt);
+  return leftTime < rightTime ? -1 : leftTime > rightTime ? 1 : left.id.localeCompare(right.id);
 }
 
 function mergeProgress(base, incoming) {
@@ -594,11 +673,320 @@ test("a database uniqueness race becomes a profile conflict without exposing pri
 });
 
 test("deployment normalizers remain byte-identical to the current application contract", async () => {
-  for (const name of ["dalcomad-kit.mjs", "quote-amount.mjs", "marketing-daily.mjs", "client-progress.mjs"]) {
+  for (const name of ["dalcomad-kit.mjs", "quote-amount.mjs", "quote-requests.mjs", "marketing-daily.mjs", "client-progress.mjs"]) {
     const source = await readFile(new URL(`../app/lib/${name}`, import.meta.url), "utf8");
     const bundled = await readFile(new URL(`../supabase/functions/mult-portas-api/lib/${name}`, import.meta.url), "utf8");
     assert.equal(bundled, source, name);
   }
   const canonical = (await readFile(new URL("../app/api/data/state-contract.mjs", import.meta.url), "utf8")).replaceAll("../../lib/", "./");
   assert.equal(await readFile(new URL("../supabase/functions/mult-portas-api/lib/state-contract.mjs", import.meta.url), "utf8"), canonical);
+});
+
+function quoteFields(overrides = {}) {
+  return { clientName: "Cliente da obra", contact: "Contato a confirmar", requestedOn: "2026-10-08",
+    notes: "Confirmar o vão antes da fabricação.", sent: false, amountCents: null,
+    items: [{ id: crypto.randomUUID(), description: "Porta integrada 2 folhas", measurements: "2,30 A × 2,00 L",
+      quantity: 1, details: "Preto | Vidro temperado" }], ...overrides };
+}
+
+function newQuote(overrides = {}) {
+  return { id: crypto.randomUUID(), mutationId: crypto.randomUUID(), ...quoteFields(overrides) };
+}
+
+function quoteClient(f, token, userId) {
+  const baseUrl = "https://abcdefghijklmnopqrst.supabase.co/functions/v1/mult-portas-api";
+  const items = new Map([[SHARED_SESSION_KEY, JSON.stringify({ endpoint: baseUrl, token,
+    generation: crypto.randomUUID(), admin: false, userId })]]);
+  const storage = { getItem: key => items.get(key) ?? null, setItem: (key, value) => items.set(key, value), removeItem: key => items.delete(key) };
+  return createSharedApiFetch({ baseUrl, storage, fetchImpl: (url, init) =>
+    f.handler(new Request(url, { ...init, headers: { ...Object.fromEntries(new Headers(init.headers)), Origin: ORIGIN } })) });
+}
+
+test("quote requests synchronize client, editable items, dates and values while keeping immutable history outside workspace saves", async () => {
+  const f = fixture();
+  const alice = await f.register();
+  const body = newQuote({ clientName: "  Cliente da obra  ", amountCents: 149990 });
+  const first = await f.call("/api/quote-requests", { method: "POST", token: alice.token, body: { ...body, createdAt: "1900-01-01T00:00:00Z", userId: 999 } });
+  assert.equal(first.status, 201);
+  assert.equal(first.body.request.clientName, "Cliente da obra");
+  assert.equal(first.body.request.createdAt, "2026-10-09T17:00:00.000Z");
+  assert.equal(first.body.request.requestedOn, "2026-10-08");
+  assert.equal(first.body.request.amountCents, 149990);
+  assert.equal(first.body.request.revision, 1);
+  const elsewhere = createSharedApi(f.options);
+  const login = await f.call("/api/auth/login", { method: "POST", body: { username: "ALICE", password: alice.password } }, elsewhere);
+  assert.equal(login.status, 200);
+  const remote = await f.call(`/api/quote-requests/${body.id}`, { token: login.body.token }, elsewhere);
+  assert.deepEqual(remote.body.request, first.body.request);
+  f.advance(60_000);
+  const updatedFields = { ...body, clientName: "Cliente atualizado", requestedOn: "2026-10-09", amountCents: 225000,
+    items: [{ ...body.items[0], measurements: "2,30 A × 2,50 L", quantity: 2 }, { ...body.items[0], id: crypto.randomUUID(), description: "Janela de correr" }] };
+  const changed = await f.call(`/api/quote-requests/${body.id}`, { method: "PUT", token: login.body.token,
+    body: { ...updatedFields, baseRevision: 1, mutationId: crypto.randomUUID() } }, elsewhere);
+  assert.equal(changed.status, 200);
+  assert.equal(changed.body.request.amountCents, 225000);
+  assert.equal(changed.body.request.items.length, 2);
+  assert.equal(changed.body.request.createdAt, first.body.request.createdAt);
+  assert.notEqual(changed.body.request.updatedAt, first.body.request.updatedAt);
+  const overwritten = await f.call("/api/data", { method: "PUT", token: alice.token,
+    body: { state: { sales: ["qualificar"] }, clientState: { schemaVersion: 1, resume: { section: "quotes" } }, baseRevision: null } });
+  assert.equal(overwritten.status, 200);
+  assert.equal((await f.call(`/api/quote-requests/${body.id}`, { token: alice.token })).body.request.revision, 2);
+  const history = await f.call(`/api/quote-requests/${body.id}/history`, { token: alice.token });
+  assert.deepEqual(history.body.versions.map(version => version.revision), [2, 1]);
+  assert.deepEqual(history.body.versions[1].snapshot, first.body.request);
+  assert.equal(history.body.versions[0].snapshot.amountCents, 225000);
+  f.advance(400 * 86_400_000);
+  const futureLogin = await f.call("/api/auth/login", { method: "POST", body: { username: "alice", password: alice.password } });
+  const retained = await f.call(`/api/quote-requests/${body.id}/history`, { token: futureLogin.body.token });
+  assert.equal(retained.status, 200);
+  assert.deepEqual(retained.body.versions, history.body.versions);
+  assert.equal(f.store.states.get(alice.user.id).state.quoteRequests, undefined);
+});
+
+test("quote create, edit and status retries are idempotent and never overwrite newer work or changed monetary amounts", async () => {
+  const f = fixture();
+  const alice = await f.register();
+  const body = newQuote();
+  const path = `/api/quote-requests/${body.id}`;
+  const create = () => f.call("/api/quote-requests", { method: "POST", token: alice.token, body });
+  assert.equal((await create()).status, 201);
+  assert.equal((await create()).body.request.revision, 1);
+  const edit = { ...body, amountCents: 250050, mutationId: crypto.randomUUID(), baseRevision: 1 };
+  const put = (value) => f.call(path, { method: "PUT", token: alice.token, body: value });
+  assert.equal((await put(edit)).body.request.revision, 2);
+  assert.equal((await put(edit)).body.request.revision, 2);
+  const status = { action: "sent", baseRevision: 2, mutationId: crypto.randomUUID() };
+  const patch = (value) => f.call(path, { method: "PATCH", token: alice.token, body: value });
+  assert.equal((await patch(status)).body.request.revision, 3);
+  assert.equal((await patch(status)).body.request.revision, 3);
+  const lateCreate = await create();
+  assert.equal(lateCreate.body.request.revision, 3);
+  assert.equal(lateCreate.body.request.amountCents, 250050);
+  assert.equal(lateCreate.body.request.sent, true);
+  const differentEdit = await put({ ...edit, amountCents: 99999 });
+  assert.equal(differentEdit.status, 409);
+  assert.equal(differentEdit.body.request.amountCents, 250050);
+  assert.equal((await patch({ ...status, action: "unsent" })).status, 409);
+  const cleared = await put({ ...edit, amountCents: null, sent: true, baseRevision: 3, mutationId: crypto.randomUUID() });
+  assert.equal(cleared.body.request.revision, 4);
+  assert.equal(cleared.body.request.amountCents, null);
+  const staleRetry = await put(edit);
+  assert.equal(staleRetry.body.request.revision, 4);
+  assert.equal(staleRetry.body.request.amountCents, null);
+  const conflict = await put({ ...edit, amountCents: 100, mutationId: crypto.randomUUID() });
+  assert.equal(conflict.status, 409);
+  assert.equal(conflict.body.request.amountCents, null);
+  assert.equal((await f.call("/api/quote-requests", { method: "POST", token: alice.token, body: { ...body, mutationId: crypto.randomUUID() } })).status, 409);
+  const history = (await f.call(`${path}/history`, { token: alice.token })).body.versions;
+  assert.equal(history.length, 4);
+  assert.deepEqual(history.map(version => version.snapshot.amountCents), [null, 250050, 250050, null]);
+  assert.deepEqual(history.map(version => version.action), ["updated", "sent", "updated", "created"]);
+});
+
+test("quote statuses, client filters and archive/restore retain every revision without deleting requests", async () => {
+  const f = fixture();
+  const alice = await f.register();
+  const body = newQuote();
+  const path = `/api/quote-requests/${body.id}`;
+  let saved = (await f.call("/api/quote-requests", { method: "POST", token: alice.token, body })).body.request;
+  const actions = ["sent", "unsent", "sent", "archived", "restored"];
+  for (const action of actions) {
+    f.advance(1000);
+    const result = await f.call(path, { method: "PATCH", token: alice.token,
+      body: { action, baseRevision: saved.revision, mutationId: crypto.randomUUID() } });
+    assert.equal(result.status, 200);
+    saved = result.body.request;
+    assert.equal(saved.sentAt === null, !saved.sent);
+    const active = await f.call("/api/quote-requests", { token: alice.token });
+    assert.equal(active.body.requests.length, action === "archived" ? 0 : 1);
+    assert.deepEqual(active.body.counts, { total: 1, pending: !saved.archivedAt && !saved.sent ? 1 : 0,
+      sent: !saved.archivedAt && saved.sent ? 1 : 0, archived: saved.archivedAt ? 1 : 0 });
+    assert.equal((await f.call("/api/quote-requests?scope=history", { token: alice.token })).body.requests.length, 1);
+  }
+  assert.equal(saved.archivedAt, null);
+  assert.equal((await f.call("/api/quote-requests?search=CLIENTE&filter=sent", { token: alice.token })).body.requests.length, 1);
+  assert.equal((await f.call("/api/quote-requests?search=outro", { token: alice.token })).body.requests.length, 0);
+  assert.equal((await f.call("/api/quote-requests?filter=pending", { token: alice.token })).body.requests.length, 0);
+  const history = (await f.call(`${path}/history`, { token: alice.token })).body.versions;
+  assert.deepEqual(history.map(version => version.action), [...actions].reverse().concat("created"));
+  assert.equal(history.find(version => version.action === "archived").snapshot.archivedAt !== null, true);
+  assert.equal((await f.call(path, { method: "DELETE", token: alice.token })).status, 405);
+  assert.equal((await f.call(path, { token: alice.token })).body.request.revision, 6);
+});
+
+test("quote ownership and selected workspaces derive from validated sessions and never disclose another user's record", async () => {
+  const f = fixture();
+  const alice = await f.register();
+  const bob = await f.register("bob");
+  const body = newQuote({ amountCents: 810000 });
+  const path = `/api/quote-requests/${body.id}`;
+  assert.equal((await f.call("/api/quote-requests", { method: "POST", token: alice.token, body })).status, 201);
+  for (const [suffix, method, requestBody] of [["", "GET"], ["/history", "GET"], ["", "PUT", { ...body, baseRevision: 1 }],
+    ["", "PATCH", { action: "sent", baseRevision: 1, mutationId: crypto.randomUUID() }]]) {
+    const result = await f.call(`${path}${suffix}`, { method, token: bob.token, body: requestBody });
+    assert.equal(result.status, 404);
+    assert.equal(result.body.request, undefined);
+  }
+  const collision = await f.call("/api/quote-requests", { method: "POST", token: bob.token, body });
+  assert.equal(collision.status, 409);
+  assert.equal(collision.body.request, null);
+  assert.equal((await f.call("/api/quote-requests", { token: bob.token })).body.requests.length, 0);
+  const scoped = `/api/admin/users/${alice.user.id}/quote-requests`;
+  assert.equal((await f.call(scoped, { token: bob.token })).status, 403);
+  assert.equal((await f.store.execute("quote_get", { userId: alice.user.id, id: body.id },
+    { tokenHash: await digestText(bob.token), adminVersion: "" })).status, "forbidden");
+  const panel = await f.privileged();
+  assert.equal((await f.call("/api/quote-requests", { token: panel })).status, 403);
+  assert.equal((await f.call(scoped, { token: panel })).body.requests[0].amountCents, 810000);
+  const changed = await f.call(`${scoped}/${body.id}`, { method: "PUT", token: panel,
+    body: { ...body, amountCents: 0, baseRevision: 1, mutationId: crypto.randomUUID() } });
+  assert.equal(changed.status, 200);
+  assert.equal((await f.call(path, { token: alice.token })).body.request.amountCents, 0);
+  assert.equal((await f.call(`/api/admin/users/999999/quote-requests`, { token: panel })).status, 404);
+  f.store.beforeExecute = async action => {
+    if (action === "quote_update") f.store.sessions.get(await digestText(alice.token)).revoked = true;
+  };
+  assert.equal((await f.call(path, { method: "PUT", token: alice.token,
+    body: { ...body, baseRevision: 2, mutationId: crypto.randomUUID() } })).status, 401);
+  assert.equal(f.store.quotes.get(body.id).record.revision, 2);
+});
+
+test("quote keyset pagination preserves exact microseconds and UUID tie breakers without duplicates or omitted records", async () => {
+  const f = fixture();
+  const alice = await f.register();
+  const expected = [];
+  for (let index = 0; index < 28; index++) {
+    const id = `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`;
+    const result = await f.call("/api/quote-requests", { method: "POST", token: alice.token, body: newQuote({ id }) });
+    assert.equal(result.status, 201);
+    const row = f.store.quotes.get(id).record;
+    row.createdAt = index < 26 ? "2026-10-09T17:00:00.123456Z" : "2026-10-09T17:00:00.123455Z";
+    expected.push(clone(row));
+  }
+  expected.sort((left, right) => -compareQuoteKeys(left, right));
+  const first = await f.call("/api/quote-requests", { token: alice.token });
+  assert.equal(first.body.requests.length, 25);
+  assert.equal(first.body.nextCursor, `${expected[24].createdAt}|${expected[24].id}`);
+  assert.match(first.body.nextCursor, /\.123456Z\|/);
+  const second = await f.call(`/api/quote-requests?cursor=${encodeURIComponent(first.body.nextCursor)}`, { token: alice.token });
+  assert.equal(second.body.requests.length, 3);
+  assert.equal(second.body.nextCursor, null);
+  const actual = [...first.body.requests, ...second.body.requests];
+  assert.deepEqual(actual.map(row => row.id), expected.map(row => row.id));
+  assert.equal(new Set(actual.map(row => row.id)).size, 28);
+});
+
+test("quote request bounds reject malformed cursors, impossible dates, repeated items and unsafe values before database writes", async () => {
+  const f = fixture();
+  const alice = await f.register();
+  const id = crypto.randomUUID();
+  for (const cursor of ["", "not-a-date|" + id, "2026-02-30T12:00:00Z|" + id, "2026-10-09|" + id,
+    "2026-10-09T17:00:00.1234567Z|" + id, "2026-10-09T24:00:00Z|" + id, "2026-10-09T17:00:00Z|invalid",
+    "2026-10-09T17:00:00Z|" + id + "|extra"]) {
+    const before = f.store.calls.filter(action => action === "quote_list").length;
+    assert.equal((await f.call(`/api/quote-requests?cursor=${encodeURIComponent(cursor)}`, { token: alice.token })).status, 400, cursor);
+    assert.equal(f.store.calls.filter(action => action === "quote_list").length, before);
+  }
+  for (const query of ["scope=deleted", "filter=maybe", "search=" + "x".repeat(121)]) {
+    assert.equal((await f.call(`/api/quote-requests?${query}`, { token: alice.token })).status, 400);
+  }
+  const valid = newQuote();
+  for (const override of [{ clientName: " " }, { requestedOn: "2026-02-30" }, { items: [] }, { sent: "true" },
+    { items: [valid.items[0], valid.items[0]] }, { items: [{ ...valid.items[0], quantity: 1.5 }] },
+    ...[-1, 0.1, "10000", 10_000_000_001].map(amountCents => ({ amountCents }))]) {
+    assert.equal((await f.call("/api/quote-requests", { method: "POST", token: alice.token, body: { ...valid, ...override } })).status, 400);
+  }
+  assert.equal((await f.call("/api/quote-requests", { method: "POST", token: alice.token, body: { ...valid, mutationId: "bad" } })).status, 400);
+  assert.equal(f.store.quotes.size, 0);
+  for (const before of ["0", "1.1", "x", "2147483648"]) {
+    assert.equal((await f.call(`/api/quote-requests/${id}/history?before=${before}`, { token: alice.token })).status, 400);
+  }
+  assert.equal((await f.call("/api/quote-requests/invalid", { token: alice.token })).status, 400);
+});
+
+test("large quote lists and history stay below the shared client's response limit and paginate every record and snapshot", async () => {
+  const f = fixture();
+  const alice = await f.register();
+  const large = quoteFields({ notes: "Observação ".padEnd(7000, "a"), items: Array.from({ length: 100 }, () => ({
+    id: crypto.randomUUID(), description: "Porta ".padEnd(450, "a"), measurements: "2,30 A × 2,00 L ".padEnd(220, "a"),
+    quantity: 1, details: "Preto | Vidro temperado ".padEnd(650, "a"),
+  })) });
+  const bytes = Buffer.byteLength(JSON.stringify(large));
+  assert.ok(bytes > 145_000 && bytes < 160_000, `fixture size ${bytes}`);
+  const ids = [];
+  for (let index = 0; index < 20; index++) {
+    const body = newQuote({ ...large, clientName: `Cliente ${index}` });
+    const result = await f.call("/api/quote-requests", { method: "POST", token: alice.token, body });
+    assert.equal(result.status, 201);
+    ids.push(body.id);
+  }
+  const id = ids[0];
+  for (let revision = 1; revision <= 26; revision++) {
+    const result = await f.call(`/api/quote-requests/${id}`, { method: "PUT", token: alice.token,
+      body: { ...large, clientName: "Cliente 0", amountCents: revision, baseRevision: revision, mutationId: crypto.randomUUID() } });
+    assert.equal(result.status, 200);
+  }
+  const client = quoteClient(f, alice.token, alice.user.id);
+  const listed = [];
+  let cursor = null;
+  let pages = 0;
+  do {
+    const response = await client(`/api/quote-requests${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`);
+    assert.equal(response.status, 200);
+    const raw = await response.text();
+    assert.ok(Buffer.byteLength(raw) < 2_000_000);
+    const payload = JSON.parse(raw);
+    assert.ok(payload.requests.length > 0);
+    listed.push(...payload.requests.map(row => row.id));
+    cursor = payload.nextCursor;
+    pages += 1;
+    assert.ok(pages < 10);
+  } while (cursor);
+  assert.ok(pages >= 3);
+  assert.deepEqual(listed.slice().sort(), ids.slice().sort());
+  assert.equal(new Set(listed).size, 20);
+  const versions = [];
+  let before = null;
+  pages = 0;
+  do {
+    const response = await client(`/api/quote-requests/${id}/history${before ? `?before=${before}` : ""}`);
+    assert.equal(response.status, 200);
+    const raw = await response.text();
+    assert.ok(Buffer.byteLength(raw) < 2_000_000);
+    const payload = JSON.parse(raw);
+    assert.equal(payload.request.revision, 27);
+    assert.ok(payload.versions.length > 0);
+    versions.push(...payload.versions);
+    before = payload.nextBefore;
+    pages += 1;
+    assert.ok(pages < 10);
+  } while (before);
+  assert.ok(pages >= 3);
+  assert.deepEqual(versions.map(version => version.revision), Array.from({ length: 27 }, (_, index) => 27 - index));
+  assert.deepEqual(versions.map(version => version.snapshot.amountCents), [...Array.from({ length: 26 }, (_, index) => 26 - index), null]);
+  assert.equal(versions.at(-1).snapshot.items[0].measurements, large.items[0].measurements);
+});
+
+test("all quote operations use their dedicated RPC and forward only the minimal database authentication context", async () => {
+  const serviceKey = `sb_secret_${freshSecret()}`;
+  const tokenHash = await digestText(freshSecret());
+  const captured = [];
+  const store = createRestStore({ url: "https://example-project.supabase.co", serviceKey,
+    fetchImpl: async (url, init) => { captured.push({ url, init }); return Response.json({ requests: [] }); } });
+  for (const action of ["quote_list", "quote_get", "quote_history", "quote_create", "quote_update", "quote_action"]) {
+    await store.execute(action, { userId: 7, id: crypto.randomUUID() },
+      { tokenHash, adminVersion: "version", now: "2026-10-09T17:00:00Z", session: { role: "forged" }, user: { password: freshSecret() } });
+    const { url, init } = captured.at(-1);
+    assert.equal(url, "https://example-project.supabase.co/rest/v1/rpc/mp_shared_quote_requests");
+    assert.equal(init.headers.apikey, serviceKey);
+    assert.equal(init.headers.Authorization, undefined);
+    assert.equal(init.redirect, "error");
+    const body = JSON.parse(init.body);
+    assert.equal(body.p_action, action);
+    assert.deepEqual(body.p_auth, { tokenHash, adminVersion: "version", now: "2026-10-09T17:00:00Z" });
+    assert.equal(init.body.includes(serviceKey), false);
+    assert.equal(init.body.includes("forged"), false);
+  }
+  assert.equal(captured.length, 6);
 });

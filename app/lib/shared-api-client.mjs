@@ -168,6 +168,7 @@ export function createSharedApiFetch({ baseUrl, fetchImpl, storage, allowLocalho
     const workspaceUserId = captured.session?.workspaceUserId;
     if (workspaceUserId !== undefined) {
       if (route === "/api/data") networkPath = path.replace(route, `/api/admin/users/${workspaceUserId}/workspace`);
+      if (/^\/api\/quote-requests(?:\/|$)/.test(route)) networkPath = path.replace("/api/quote-requests", `/api/admin/users/${workspaceUserId}/quote-requests`);
       if (route === "/api/auth/me" && method === "GET") networkPath = `/api/admin/users/${workspaceUserId}/access`;
     }
 

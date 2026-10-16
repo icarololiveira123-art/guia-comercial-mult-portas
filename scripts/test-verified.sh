@@ -24,6 +24,7 @@ exec node --experimental-loader "${SITES_PROJECT_ROOT}/tests/cloudflare-workers-
   "${SITES_PROJECT_ROOT}/tests/marketing-daily.test.mjs" \
   "${SITES_PROJECT_ROOT}/tests/password-hashing.test.mjs" \
   "${SITES_PROJECT_ROOT}/tests/provider-messages.test.mjs" \
+  "${SITES_PROJECT_ROOT}/tests/quote-requests.test.mjs" \
   "${SITES_PROJECT_ROOT}/tests/rendered-html.test.mjs" \
   "${SITES_PROJECT_ROOT}/tests/schema-bootstrap.test.mjs" \
   "${SITES_PROJECT_ROOT}/tests/shared-api-client.test.mjs" \

@@ -512,3 +512,63 @@ test("damaged or unavailable shared storage fails closed without a network reque
     assert.equal(calls, 0);
   }
 });
+
+test("quote requests follow the selected workspace with collection queries, record actions and history preserving the original authority", async () => {
+  const storage = new Storage();
+  const token = crypto.randomUUID();
+  const session = { endpoint: BASE, token, generation: "workspace-quotes", admin: true, userId: null, workspaceUserId: 7 };
+  storage.setItem(SHARED_SESSION_KEY, JSON.stringify(session));
+  const original = storage.getItem(SHARED_SESSION_KEY);
+  const calls = [];
+  let expectedToken = token;
+  const api = createSharedApiFetch({ baseUrl: BASE, storage, fetchImpl: async (url, init) => {
+    calls.push({ path: url.slice(BASE.length), method: init.method, body: init.body });
+    assert.equal(init.headers.get("Authorization"), `Bearer ${expectedToken}`);
+    return Response.json({ requests: [], request: { id: "kept" }, versions: [] });
+  } });
+  const id = crypto.randomUUID();
+  const cursor = encodeURIComponent(`2026-10-16T15:30:00.123456Z|${id}`);
+  const routes = [
+    ["/api/quote-requests?scope=history&search=Maria&cursor=" + cursor, "GET"],
+    ["/api/quote-requests", "POST"],
+    [`/api/quote-requests/${id}`, "PUT"],
+    [`/api/quote-requests/${id}`, "PATCH"],
+    [`/api/quote-requests/${id}/history?before=18`, "GET"],
+  ];
+  for (const [path, method] of routes) {
+    const body = method === "GET" ? undefined : { amountCents: 155000, mutationId: crypto.randomUUID() };
+    assert.equal((await request(api, path, method, body)).status, 200);
+    assert.equal(calls.at(-1).path, path.replace("/api/quote-requests", "/api/admin/users/7/quote-requests"));
+    assert.equal(calls.at(-1).method, method);
+    if (body) assert.deepEqual(JSON.parse(calls.at(-1).body), body);
+  }
+  assert.equal(storage.getItem(SHARED_SESSION_KEY), original);
+  assert.equal(calls.length, 5);
+  expectedToken = loggedIn(storage, 7).token;
+  assert.equal((await request(api, "/api/quote-requests")).status, 200);
+  assert.equal(calls.at(-1).path, "/api/quote-requests");
+});
+
+test("returning from a selected workspace cancels delayed quote list and history responses before they reach another account", async () => {
+  for (const path of ["/api/quote-requests?scope=history", `/api/quote-requests/${crypto.randomUUID()}/history`]) {
+    const storage = new Storage();
+    const token = crypto.randomUUID();
+    storage.setItem(SHARED_SESSION_KEY, JSON.stringify({ endpoint: BASE, token, generation: "workspace-quotes", admin: true, userId: null, workspaceUserId: 7 }));
+    const slow = deferred();
+    const started = deferred();
+    const api = createSharedApiFetch({ baseUrl: BASE, storage, fetchImpl: async (url) => {
+      if (url.includes("/quote-requests")) { started.resolve(); return slow.promise; }
+      return Response.json({ user: null, admin: true, workspaceAccess: false });
+    } });
+    const pending = api(path);
+    const rejected = assert.rejects(pending, { name: "AbortError" });
+    await started.promise;
+    assert.equal((await request(api, "/api/admin/access/end", "POST")).status, 200);
+    slow.resolve(Response.json({ requests: [{ clientName: "Previous account" }], versions: [{ snapshot: { amountCents: 155000 } }] }));
+    await rejected;
+    const current = JSON.parse(storage.getItem(SHARED_SESSION_KEY));
+    assert.equal(current.token, token);
+    assert.equal(current.workspaceUserId, undefined);
+    assert.equal(current.admin, true);
+  }
+});
