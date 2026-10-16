@@ -7,7 +7,7 @@ export const CLIENT_PROGRESS_BRANDS = Object.freeze([
   "dalcomad", "destak", "casmavi", "aluan", "brimak", "brasil", "crv", "lucasa", "riobras",
 ]);
 
-const sections = ["overview", "script", "seller", "training", "timing", "messages", "fair", "factory", "catalog", "control", "marketing", "management"];
+const sections = ["overview", "script", "seller", "training", "timing", "messages", "fair", "factory", "catalog", "control", "quotes", "marketing", "management"];
 const stages = ["basics", "materials", "measures", "quality", "practice"];
 const studyFields = ["product", "use", "composition", "measure", "pending"];
 const wizardFields = ["leafMeasure", "requadro", "line", "finish", "color", "filling", "priceWithoutLock", "priceWithLock"];

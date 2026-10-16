@@ -1,6 +1,7 @@
 import { normalizeEmployeeState, summarizeEmployeeState } from "./lib/state-contract.mjs";
 import { normalizeClientProgress } from "./lib/client-progress.mjs";
 import { hasLegacyMarketingDays, preserveLegacyMarketingCounts } from "./lib/marketing-daily.mjs";
+import { isQuoteId, validateQuoteFields, validQuoteDate, QUOTE_PAGE_SIZE } from "./lib/quote-requests.mjs";
 
 // This module is deliberately portable: no SDK, environment reads or browser
 // storage. The deployment entrypoint injects the private database and secret.
@@ -156,6 +157,20 @@ function checkSize(value, max) {
   if (enc.encode(JSON.stringify(value)).length > max) throw new ApiError(413, "Os dados enviados ultrapassaram o limite.");
 }
 
+// Large requests and full audit snapshots must fit the client's 2 MB response
+// limit. Page by both rows and UTF-8 bytes, keeping the exact last included key.
+function quotePage(items, extra = null) {
+  let bytes = enc.encode(JSON.stringify(extra)).byteLength + 1_024;
+  const page = [];
+  for (const item of items.slice(0, QUOTE_PAGE_SIZE)) {
+    const size = enc.encode(JSON.stringify(item)).byteLength + 1;
+    if (page.length && bytes + size > 1_500_000) break;
+    page.push(item);
+    bytes += size;
+  }
+  return page;
+}
+
 function requireResult(result) {
   if (!record(result)) throw new Error("invalid_store_response");
   if (result.status === "unauthorized") throw new ApiError(401, "Sessão expirada. Entre novamente.");
@@ -301,6 +316,74 @@ export function createSharedApi({ store, accessPassword = "", allowedOrigins = [
     }
     const auth = await authenticate(request, clock);
     await rate(`session:${auth.tokenHash}`, 300, 60, clock);
+    const quoteRoute = /^(?:\/api\/admin\/users\/([1-9]\d*)|\/api)\/quote-requests(?:\/([^/]+)(?:\/(history))?)?$/.exec(route);
+    if (quoteRoute) {
+      const userId = quoteRoute[1] ? (requireAdmin(auth), accountId(quoteRoute[1])) : auth.user?.id;
+      if (!quoteRoute[1] && auth.session.role !== "user") throw new ApiError(403, "Acesso não autorizado.");
+      const id = quoteRoute[2];
+      if (id && !isQuoteId(id)) throw new ApiError(400, "O pedido selecionado é inválido.");
+      const history = quoteRoute[3] === "history";
+      let action;
+      let payload = { userId, ...(id ? { id } : {}) };
+      const params = new URL(request.url).searchParams;
+      if (method === "GET" && !id) {
+        const scope = params.get("scope") ?? "active";
+        const filter = params.get("filter") ?? "all";
+        const search = (params.get("search") ?? "").trim();
+        if (!["active", "history"].includes(scope) || !["all", "sent", "pending"].includes(filter) || search.length > 120) throw new ApiError(400, "Os filtros do pedido são inválidos.");
+        let cursor = {};
+        if (params.has("cursor")) {
+          const parts = params.get("cursor").split("|");
+          const iso = /^[1-9]\d{3}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d{1,6})?(?:Z|[+-](?:0\d|1[0-4]):[0-5]\d)$/;
+          if (parts.length !== 2 || !isQuoteId(parts[1]) || !iso.test(parts[0]) || !validQuoteDate(parts[0].slice(0, 10)) || !Number.isFinite(Date.parse(parts[0]))) throw new ApiError(400, "A página de pedidos é inválida.");
+          cursor = { cursorAt: parts[0], cursorId: parts[1] };
+        }
+        action = "quote_list"; payload = { ...payload, scope, filter, search, ...cursor };
+      } else if (method === "GET" && history) {
+        action = "quote_history";
+        if (params.has("before")) {
+          const before = Number(params.get("before"));
+          if (!Number.isSafeInteger(before) || before < 1 || before > 2_147_483_647) throw new ApiError(400, "A página do histórico é inválida.");
+          payload.beforeRevision = before;
+        }
+      } else if (method === "GET") action = "quote_get";
+      else if (!history && (method === "POST" && !id || ["PUT", "PATCH"].includes(method) && id)) {
+        const body = await readJson(request, 180_000);
+        if (!isQuoteId(body.mutationId)) throw new ApiError(400, "A identificação da alteração é inválida.");
+        payload.mutationId = body.mutationId;
+        if (method === "POST") {
+          if (!isQuoteId(body.id)) throw new ApiError(400, "A identificação do novo pedido é inválida.");
+          payload.id = body.id;
+        } else {
+          if (!Number.isSafeInteger(body.baseRevision) || body.baseRevision < 1 || body.baseRevision > 2_147_483_646) throw new ApiError(400, "A versão do pedido é inválida.");
+          payload.baseRevision = body.baseRevision;
+        }
+        if (method === "PATCH") {
+          if (!["sent", "unsent", "archived", "restored"].includes(body.action)) throw new ApiError(400, "A alteração do pedido é inválida.");
+          action = "quote_action"; payload.action = body.action;
+        } else {
+          try { payload.data = validateQuoteFields(body); } catch (error) { throw new ApiError(400, error.message); }
+          checkSize(payload.data, 160_000);
+          action = method === "POST" ? "quote_create" : "quote_update";
+        }
+      } else throw new ApiError(405, "Método não permitido para pedidos de orçamento.");
+      checkSignal(request);
+      const result = await execute(action, payload, auth);
+      if (result.status === "quote-not-found") throw new ApiError(404, "Pedido não encontrado.");
+      if (result.status === "quote-conflict") throw new ApiError(409, "Este pedido mudou em outra sessão. Confira a versão salva antes de continuar.", { request: result.request ?? null });
+      if (action === "quote_list") {
+        const requests = quotePage(result.requests);
+        const more = result.requests.length > requests.length;
+        const last = requests.at(-1);
+        return { value: { ...result, requests, nextCursor: more ? `${last.createdAt}|${last.id}` : null } };
+      }
+      if (action === "quote_history") {
+        const versions = quotePage(result.versions, result.request);
+        const more = result.versions.length > versions.length;
+        return { value: { ...result, versions, nextBefore: more ? versions.at(-1).revision : null } };
+      }
+      return { status: action === "quote_create" ? 201 : 200, value: result };
+    }
     if (route === "/api/auth/profile" && method === "PATCH") {
       if (auth.session.role !== "user" || !auth.user) throw new ApiError(403, "Acesso não autorizado.");
       const body = await readJson(request, AUTH_BYTES);

@@ -6,6 +6,7 @@ import { WorkspaceIcon, type WorkspaceIconName } from "./workspace-icon";
 import { HomeWorkspace } from "./home-workspace";
 import { CatalogWorkspace } from "./catalog-workspace";
 import { MarketingDaily } from "./marketing-daily";
+import { QuoteRequests } from "./quote-requests";
 import { normalizeMarketingDaily, type MarketingDailyState } from "./lib/marketing-daily.mjs";
 import { AccountCenter } from "./account-center";
 import { FollowUpRow } from "./followup-row";
@@ -56,7 +57,7 @@ import {
   providerTypeOptions,
 } from "./lib/provider-message.mjs";
 
-type Section = "overview" | "script" | "seller" | "training" | "timing" | "messages" | "fair" | "factory" | "catalog" | "control" | "marketing" | "management";
+type Section = "overview" | "script" | "seller" | "training" | "timing" | "messages" | "fair" | "factory" | "catalog" | "control" | "quotes" | "marketing" | "management";
 type BrandId = "dalcomad" | "destak" | "casmavi" | "aluan" | "brimak" | "brasil" | "crv" | "lucasa" | "riobras";
 type Priority = "Alta" | "Média" | "Baixa";
 type TrainingLevel = "Básico" | "Intermediário" | "Avançado";
@@ -565,6 +566,7 @@ const sections: { id: Section; label: string; icon: string; description: string 
   { id: "factory", label: "Requisição fábrica", icon: "▤", description: "Preencha e exporte" },
   { id: "catalog", label: "Catálogos", icon: "▦", description: "Marcas e soluções" },
   { id: "control", label: "Controle", icon: "✓", description: "Pendências e carteira" },
+  { id: "quotes", label: "Pedidos de orçamento", icon: "▤", description: "Clientes, medidas e envios" },
   { id: "marketing", label: "Marketing diário", icon: "◷", description: "Contatos do dia" },
   { id: "management", label: "Gestão", icon: "▥", description: "Indicadores e rotina" },
 ];
@@ -573,7 +575,7 @@ const workspaceGroups: { id: string; label: string; icon: WorkspaceIconName; sec
   { id: "home", label: "Início", icon: "home", sections: ["overview"] },
   { id: "learn", label: "Aprender", icon: "book", sections: ["catalog", "seller", "training"] },
   { id: "serve", label: "Atender", icon: "message", sections: ["script", "messages", "fair", "timing"] },
-  { id: "operate", label: "Operação", icon: "work", sections: ["control", "marketing", "factory"] },
+  { id: "operate", label: "Operação", icon: "work", sections: ["control", "quotes", "marketing", "factory"] },
   { id: "measure", label: "Indicadores", icon: "chart", sections: ["management"] },
 ];
 
@@ -3913,6 +3915,8 @@ export default function Home() {
             <details className="module-reference"><summary>Como manter os registros confiáveis <span>+</span></summary><section className="control-rules"><div><span className="rule-number">01</span><strong>Número imutável</strong><p>O oficial não muda.</p></div><div><span className="rule-number">02</span><strong>Um status principal</strong><p>Sem duplicidade de cobrança.</p></div><div><span className="rule-number">03</span><strong>Histórico separado</strong><p>Encerrado não volta sozinho.</p></div><div><span className="rule-number">04</span><strong>Valor exato</strong><p>Centavos preservados.</p></div></section></details>
           </div>
         )}
+
+        <QuoteRequests key={`quote-requests-${authUser.id}`} userId={authUser.id} request={apiFetch} active={section === "quotes"} />
 
         {section === "marketing" && <MarketingDaily key={authUser.id} seller={authUser.displayName} state={marketingDaily} onChange={setMarketingDaily} />}
 
