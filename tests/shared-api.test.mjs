@@ -6,6 +6,7 @@ import { createRestStore } from "../supabase/functions/mult-portas-api/rest-stor
 import { normalizeClientProgress } from "../supabase/functions/mult-portas-api/lib/client-progress.mjs";
 import { createSharedApiFetch, SHARED_SESSION_KEY } from "../app/lib/shared-api-client.mjs";
 import { readAccessSession } from "../app/lib/session-check.mjs";
+import { quoteMatchesSearch } from "../app/lib/search.mjs";
 
 const ORIGIN = "https://icarololiveira123-art.github.io";
 const BASE = "https://example-project.supabase.co/functions/v1/mult-portas-api";
@@ -176,9 +177,9 @@ class MemoryStore {
     const entry = selected?.userId === payload.userId ? selected : null;
     if (action === "quote_list") {
       const requests = owned.map(item => item.record).filter(item =>
-        (payload.scope === "history" || !item.archivedAt)
+        (payload.scope === "history" || (payload.scope === "archived" ? Boolean(item.archivedAt) : !item.archivedAt))
         && (payload.filter === "all" || item.sent === (payload.filter === "sent"))
-        && (!payload.search || item.clientName.toLowerCase().includes(payload.search.toLowerCase()))
+        && quoteMatchesSearch(item, payload.search ?? "")
         && (!payload.cursorId || compareQuoteKeys(item, { createdAt: payload.cursorAt, id: payload.cursorId }) < 0))
         .sort((left, right) => -compareQuoteKeys(left, right)).slice(0, 26);
       return clone({ requests, counts: { total: owned.length,
@@ -204,17 +205,20 @@ class MemoryStore {
     if (action === "quote_create") {
       if (selected) return { status: "quote-conflict", ...(entry ? { request: clone(entry.record) } : {}) };
       target = { userId: payload.userId, record: { ...clone(payload.data), id: payload.id, revision: 1,
-        createdAt: now, updatedAt: now, sentAt: payload.data.sent ? now : null, archivedAt: null }, versions: [], mutations: new Map() };
+        createdAt: now, updatedAt: now, sentAt: payload.data.sent ? now : null, archivedAt: payload.data.sent ? now : null }, versions: [], mutations: new Map() };
       this.quotes.set(payload.id, target);
       change = "created";
     } else {
       if (!entry) return { status: "quote-not-found" };
       if (entry.record.revision !== payload.baseRevision) return { status: "quote-conflict", request: clone(entry.record) };
       const wasSent = entry.record.sent;
-      if (action === "quote_update") { Object.assign(entry.record, clone(payload.data)); change = "updated"; }
+      if (action === "quote_update") {
+        Object.assign(entry.record, clone(payload.data)); change = "updated";
+        if (entry.record.sent && !wasSent) entry.record.archivedAt ??= now;
+      }
       else {
         change = payload.action;
-        if (change === "sent") entry.record.sent = true;
+        if (change === "sent") { entry.record.sent = true; entry.record.archivedAt ??= now; }
         if (change === "unsent") entry.record.sent = false;
         if (change === "archived") entry.record.archivedAt = now;
         if (change === "restored") entry.record.archivedAt = null;
@@ -799,7 +803,7 @@ test("quote statuses, client filters and archive/restore retain every revision w
     saved = result.body.request;
     assert.equal(saved.sentAt === null, !saved.sent);
     const active = await f.call("/api/quote-requests", { token: alice.token });
-    assert.equal(active.body.requests.length, action === "archived" ? 0 : 1);
+    assert.equal(active.body.requests.length, saved.archivedAt ? 0 : 1);
     assert.deepEqual(active.body.counts, { total: 1, pending: !saved.archivedAt && !saved.sent ? 1 : 0,
       sent: !saved.archivedAt && saved.sent ? 1 : 0, archived: saved.archivedAt ? 1 : 0 });
     assert.equal((await f.call("/api/quote-requests?scope=history", { token: alice.token })).body.requests.length, 1);
@@ -1098,4 +1102,70 @@ test("invalid per-item prices and overflowing totals are refused before quote wr
   assert.equal(overflow.status, 400);
   assert.equal(f.store.quotes.size, 0);
   assert.equal(f.store.calls.filter(action => action === "quote_create").length, 0);
+});
+
+test("quote searches include dimensions, product details and client accents before paginating within the selected account", async () => {
+  const f = fixture();
+  const alice = await f.register();
+  const bob = await f.register('bob');
+  const body = newQuote({ clientName: 'João Café', items: [
+    { id: crypto.randomUUID(), description: 'Porta integrada', height: '2,30', width: '2,00', measurements: '', quantity: 1, details: 'Preto | Vidro temperado' },
+    { id: crypto.randomUUID(), description: 'Janela', height: '1,20', width: '1,50', measurements: '', quantity: 1, details: 'Branco' },
+  ] });
+  assert.equal((await f.call('/api/quote-requests', { method: 'POST', token: alice.token, body })).status, 201);
+  for (const query of ['2,30','2.30','2,30 x 2,00','230 × 200 cm','2300 mm x 2000 mm','joao cafe','integrada','temperado']) {
+    const result = await f.call('/api/quote-requests?search=' + encodeURIComponent(query), { token: alice.token });
+    assert.equal(result.status, 200);
+    assert.deepEqual(result.body.requests.map(row => row.id), [body.id], query);
+    assert.equal((await f.call('/api/quote-requests?search=' + encodeURIComponent(query), { token: bob.token })).body.requests.length, 0);
+  }
+  for (const query of ['2,35','2,30 x 1,50','2,30 branco','%']) assert.equal((await f.call('/api/quote-requests?search=' + encodeURIComponent(query), { token: alice.token })).body.requests.length, 0, query);
+  for (let index = 0; index < 27; index++) {
+    const other = newQuote({ items: [{ ...body.items[0], id: crypto.randomUUID(), width: '0,80' }] });
+    assert.equal((await f.call('/api/quote-requests', { method: 'POST', token: alice.token, body: other })).status, 201);
+  }
+  const first = (await f.call('/api/quote-requests?search=2.3', { token: alice.token })).body;
+  assert.equal(first.requests.length, 25);
+  assert.ok(first.nextCursor);
+  const next = (await f.call('/api/quote-requests?search=2.3&cursor=' + encodeURIComponent(first.nextCursor), { token: alice.token })).body;
+  assert.equal(next.requests.length, 3);
+  assert.equal(new Set([...first.requests, ...next.requests].map(row => row.id)).size, 28);
+});
+
+test("sending archives atomically, archived lists stay separate, and restoring or retrying retains every version", async () => {
+  const f = fixture();
+  const alice = await f.register();
+  const body = newQuote({ amountCents: 125050 });
+  const path = `/api/quote-requests/${body.id}`;
+  const created = (await f.call('/api/quote-requests', { method: 'POST', token: alice.token, body })).body.request;
+  assert.equal(created.archivedAt, null);
+  assert.equal((await f.call('/api/quote-requests?scope=archived', { token: alice.token })).body.requests.length, 0);
+  const action = { action: 'sent', baseRevision: 1, mutationId: crypto.randomUUID() };
+  const sent = (await f.call(path, { method: 'PATCH', token: alice.token, body: action })).body.request;
+  assert.equal(sent.sent, true);
+  assert.ok(sent.archivedAt);
+  assert.equal(sent.archivedAt, sent.sentAt);
+  assert.equal(sent.amountCents, 125050);
+  assert.equal((await f.call('/api/quote-requests?scope=active', { token: alice.token })).body.requests.length, 0);
+  const archived = (await f.call('/api/quote-requests?scope=archived&search=2.3', { token: alice.token })).body;
+  assert.deepEqual(archived.requests.map(row => row.id), [body.id]);
+  assert.equal(archived.counts.archived, 1);
+  assert.equal((await f.call(path, { method: 'PATCH', token: alice.token, body: action })).body.request.revision, 2);
+  const restored = (await f.call(path, { method: 'PATCH', token: alice.token, body: { action: 'restored', baseRevision: 2, mutationId: crypto.randomUUID() } })).body.request;
+  assert.equal(restored.archivedAt, null);
+  assert.equal(restored.sent, true);
+  assert.equal((await f.call('/api/quote-requests?scope=active', { token: alice.token })).body.requests.length, 1);
+  assert.equal((await f.call('/api/quote-requests?scope=archived', { token: alice.token })).body.requests.length, 0);
+  const history = (await f.call(path + '/history', { token: alice.token })).body.versions;
+  assert.deepEqual(history.map(version => version.action), ['restored','sent','created']);
+  assert.equal(history[1].snapshot.archivedAt, sent.archivedAt);
+  const alreadySent = newQuote({ sent: true });
+  const imported = (await f.call('/api/quote-requests', { method: 'POST', token: alice.token, body: alreadySent })).body.request;
+  assert.ok(imported.archivedAt);
+  const pending = newQuote();
+  const made = (await f.call('/api/quote-requests', { method: 'POST', token: alice.token, body: pending })).body.request;
+  const edited = (await f.call(`/api/quote-requests/${made.id}`, { method: 'PUT', token: alice.token, body: { ...pending, sent: true, baseRevision: 1, mutationId: crypto.randomUUID() } })).body.request;
+  assert.ok(edited.archivedAt);
+  assert.equal(edited.sent, true);
+  assert.equal(edited.revision, 2);
 });

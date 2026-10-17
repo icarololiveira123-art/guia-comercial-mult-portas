@@ -63,7 +63,7 @@ function recordAmount(record: QuoteRequestRecord) {
 export function QuoteRequests({ userId, request, active }: Props) {
   const storageKey = `mult-portas-quote-draft-v2:${userId}`;
   const [draft, setDraft] = useState<Draft>(() => readDraft(storageKey));
-  const [scope, setScope] = useState<"active" | "history">("active");
+  const [scope, setScope] = useState<"active" | "archived">("active");
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [searchReady, setSearchReady] = useState("");
@@ -178,7 +178,7 @@ export function QuoteRequests({ userId, request, active }: Props) {
     window.requestAnimationFrame(() => { formHeading.current?.focus(); formHeading.current?.scrollIntoView({ behavior: "smooth", block: "start" }); });
   }
   function putRecord(record: QuoteRequestRecord) {
-    setRows(current => current.map(item => item.id === record.id ? record : item));
+    setRows(current => current.flatMap(item => item.id !== record.id ? [item] : (scope === "active" ? !record.archivedAt : Boolean(record.archivedAt)) ? [record] : []));
     setHistory(current => current?.request.id === record.id ? null : current);
     setRefresh(current => current + 1);
   }
@@ -200,7 +200,7 @@ export function QuoteRequests({ userId, request, active }: Props) {
         body: JSON.stringify({ ...fields, id: draft.id, mutationId: draft.mutationId, ...(draft.baseRevision === null ? {} : { baseRevision: draft.baseRevision }) }),
       });
       setDraft(editDraft(result.request)); putRecord(result.request);
-      setFeedback("Pedido salvo na sua conta. Você pode consultá-lo em outro computador com o mesmo login.");
+      setFeedback(result.request.archivedAt ? "Pedido salvo em Arquivados. Os dados e o histórico continuam na sua conta." : "Pedido salvo na sua conta. Você pode consultá-lo em outro computador com o mesmo login.");
     } catch (error) {
       if (!isAbort(error)) {
         if (error instanceof QuoteError && error.status === 409) setConflict({ request: error.current });
@@ -216,7 +216,7 @@ export function QuoteRequests({ userId, request, active }: Props) {
       const result = await call<{ request: QuoteRequestRecord }>(`/api/quote-requests/${record.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ baseRevision: record.revision, mutationId: uid(), action }) });
       putRecord(result.request);
       if (draft.id === record.id) setDraft(editDraft(result.request));
-      setFeedback(`${actions[action] ?? "Pedido atualizado"}. A alteração ficou registrada no histórico.`);
+      setFeedback(`${action === "sent" && result.request.archivedAt ? "Pedido marcado como enviado e arquivado automaticamente" : actions[action] ?? "Pedido atualizado"}. A alteração ficou registrada no histórico.`);
     } catch (error) {
       if (!isAbort(error)) { setActionError(messageOf(error)); if (error instanceof QuoteError && error.status === 409) setRefresh(current => current + 1); }
     } finally { busyRef.current = false; if (mounted.current) setActionBusy(null); }
@@ -242,15 +242,15 @@ export function QuoteRequests({ userId, request, active }: Props) {
   if (!active) return null;
   return <div className="page-content quote-page">
     <header className="quote-heading"><div><span className="section-kicker">OPERAÇÃO / DO PEDIDO AO ENVIO</span><h1>Pedidos de orçamento</h1><p>Cliente, medidas, valores e cada etapa do atendimento, no mesmo lugar.</p></div><button className="button dark" type="button" onClick={() => openEditor("new")} disabled={disabled}>Novo pedido <span aria-hidden="true">+</span></button></header>
-    <div className="quote-metrics" aria-label="Resumo dos pedidos"><div><span>Total registrado</span><strong>{counts.total}</strong></div><div><span>Aguardando envio</span><strong>{counts.pending}</strong></div><div><span>Enviados · ativos</span><strong>{counts.sent}</strong></div><div><span>Arquivados</span><strong>{counts.archived}</strong></div></div>
+    <div className="quote-metrics" aria-label="Resumo dos pedidos"><div><span>Total registrado</span><strong>{counts.total}</strong></div><div><span>Em andamento</span><strong>{counts.total - counts.archived}</strong></div><div><span>Aguardando envio</span><strong>{counts.pending}</strong></div><div><span>Arquivados</span><strong>{counts.archived}</strong></div></div>
     <p className="quote-feedback" role="status" aria-live="polite">{feedback}</p>
     {actionError && <div className="quote-error" role="alert">{actionError}</div>}
     {manualCopy && <div className="quote-copy-fallback"><label htmlFor="quote-copy-text">Use a opção Copiar do seu aparelho para copiar o resumo.</label><textarea id="quote-copy-text" ref={summaryRef} readOnly rows={5} value={manualCopy} /><button type="button" className="button" onClick={() => setManualCopy("")}>Fechar resumo</button></div>}
     <div className="quote-layout">
       <section className="quote-ledger" aria-labelledby="quote-list-title">
-        <div className="quote-ledger-head"><span className="section-kicker">SUA CARTEIRA DE PEDIDOS</span><h2 id="quote-list-title">Acompanhe cada cliente.</h2><p>Arquivar organiza a lista e mantém todas as informações disponíveis no histórico.</p></div>
-        <div className="quote-tabs" aria-label="Listas de pedidos"><button type="button" aria-pressed={scope === "active"} onClick={() => setScope("active")}>Em andamento</button><button type="button" aria-pressed={scope === "history"} onClick={() => setScope("history")}>Histórico completo</button></div>
-        <div className="quote-filters"><label>Buscar cliente ou item<input type="search" maxLength={120} placeholder="Nome, produto, medida…" value={search} onChange={event => setSearch(event.target.value)} /></label><label>Envio ao cliente<select value={filter} onChange={event => setFilter(event.target.value)}><option value="all">Todos os status</option><option value="pending">Ainda não enviados</option><option value="sent">Enviados</option></select></label></div>
+        <div className="quote-ledger-head"><span className="section-kicker">SUA CARTEIRA DE PEDIDOS</span><h2 id="quote-list-title">{scope === "archived" ? "Pedidos arquivados." : "Acompanhe cada cliente."}</h2><p>{scope === "archived" ? "Pedidos guardados, com seus dados e todas as alterações. Você pode restaurá-los quando precisar." : "Ao marcar um pedido como enviado, ele vai automaticamente para Arquivados."}</p></div>
+        <div className="quote-tabs" aria-label="Listas de pedidos"><button type="button" aria-pressed={scope === "active"} onClick={() => { setScope("active"); setFilter("all"); }}>Em andamento</button><button type="button" aria-pressed={scope === "archived"} onClick={() => { setScope("archived"); setFilter("all"); }}>Arquivados</button></div>
+        <div className="quote-filters"><label>Buscar cliente, item ou medida<input type="search" maxLength={120} placeholder="Nome, produto, medida…" value={search} onChange={event => setSearch(event.target.value)} /></label><label>Envio ao cliente<select value={filter} onChange={event => setFilter(event.target.value)}><option value="all">Todos os status</option><option value="pending">Ainda não enviados</option><option value="sent">Enviados</option></select></label></div>
         {listError && <div className="quote-error" role="alert"><p>{listError}</p><button type="button" className="button" onClick={() => { void loadList(); }}>Tentar novamente</button></div>}
         <div className="quote-list" aria-busy={loading}>
           {rows.map(record => <article className={`quote-record${draft.id === record.id ? " is-selected" : ""}`} key={record.id}>
@@ -259,7 +259,7 @@ export function QuoteRequests({ userId, request, active }: Props) {
             <div className="quote-record-meta"><span>Criado {formatQuoteDate(record.createdAt, true)}</span><strong>{recordAmount(record)}</strong>{record.archivedAt && <span className="quote-archive-label">Arquivado</span>}</div>
             <div className="quote-record-actions"><button type="button" onClick={() => openEditor(record)} disabled={disabled}>Editar pedido</button><button type="button" onClick={() => { void loadHistory(record); }} disabled={historyLoading}>Ver alterações</button><button type="button" onClick={() => { void copy(record); }}>Copiar resumo</button><button type="button" onClick={() => { void changeStatus(record, record.sent ? "unsent" : "sent"); }} disabled={disabled}>{record.sent ? "Marcar não enviado" : "Marcar enviado"}</button><button type="button" onClick={() => { void changeStatus(record, record.archivedAt ? "restored" : "archived"); }} disabled={disabled}>{actionBusy === record.id ? "Salvando…" : record.archivedAt ? "Restaurar pedido" : "Arquivar"}</button></div>
           </article>)}
-          {!rows.length && !loading && !listError && <div className="quote-empty"><WorkspaceIcon name="work" /><strong>{searchReady || filter !== "all" ? "Nenhum pedido com esses filtros." : "Seu próximo atendimento começa aqui."}</strong><p>{searchReady || filter !== "all" ? "Tente outro nome ou altere os filtros." : "Preencha o cliente e os itens ao lado para criar o primeiro pedido."}</p></div>}
+          {!rows.length && !loading && !listError && <div className="quote-empty"><WorkspaceIcon name="work" /><strong>{searchReady || filter !== "all" ? "Nenhum pedido com esses filtros." : scope === "archived" ? "Nenhum pedido arquivado." : "Seu próximo atendimento começa aqui."}</strong><p>{searchReady || filter !== "all" ? "Tente outro nome ou altere os filtros." : scope === "archived" ? "Os pedidos enviados ou arquivados serão guardados nesta aba." : "Preencha o cliente e os itens ao lado para criar o primeiro pedido."}</p></div>}
           {loading && <p className="quote-loading" role="status">Carregando pedidos…</p>}
         </div>
         {nextCursor && <button className="button quote-load-more" type="button" disabled={loading} onClick={() => { void loadList(nextCursor); }}>Carregar pedidos anteriores</button>}
@@ -288,7 +288,7 @@ export function QuoteRequests({ userId, request, active }: Props) {
             {draft.amountText.trim() && <div className="quote-legacy-value"><strong>Total anterior, sem divisão por item</strong><p>{parseQuoteAmount(draft.amountText).valid ? formatQuoteAmount(parseQuoteAmount(draft.amountText).amountCents) : draft.amountText}</p><p>Preservado como referência. Esse valor não entra na soma dos itens.</p><button type="button" onClick={() => { setDraft(current => ({ ...current, amountText: "", mutationId: uid(), dirty: true })); setFormError(""); }}>Remover referência anterior</button></div>}
 
             <label className="quote-notes">Observações <small>opcional</small><textarea maxLength={8000} rows={3} value={draft.fields.notes} placeholder="Informações da obra, preferências e próximos passos…" onChange={event => change({ notes: event.target.value })} /></label>
-            <label className="quote-sent-check"><input type="checkbox" checked={draft.fields.sent} onChange={event => change({ sent: event.target.checked })} /><span><strong>Já enviei este orçamento ao cliente</strong><small>Marque somente depois do envio. Essa opção registra o status.</small></span></label>
+            <label className="quote-sent-check"><input type="checkbox" checked={draft.fields.sent} onChange={event => change({ sent: event.target.checked })} /><span><strong>Já enviei este orçamento ao cliente</strong><small>Marque somente depois do envio. Ao salvar, o pedido será arquivado automaticamente.</small></span></label>
           </fieldset>
           {formError && <div className="quote-error" role="alert">{formError}</div>}
           {storageError && <p className="quote-warning" role="alert">Não foi possível guardar o rascunho neste aparelho. Mantenha esta página aberta até salvar o pedido.</p>}
@@ -297,7 +297,7 @@ export function QuoteRequests({ userId, request, active }: Props) {
         </form>
       </section>
     </div>
-    {history && <section className="quote-history" aria-labelledby="quote-history-title"><div className="quote-history-heading"><div><span className="section-kicker">CADA ALTERAÇÃO FICA REGISTRADA</span><h2 id="quote-history-title" tabIndex={-1} ref={historyHeading}>Histórico de {history.request.clientName}</h2><p>Criado em {formatQuoteDate(history.request.createdAt, true)} · {history.request.revision} {history.request.revision === 1 ? "versão" : "versões"} registradas</p></div><button className="button" type="button" onClick={() => { ++historyGeneration.current; setHistory(null); setHistoryLoading(false); }}>Fechar histórico</button></div>{historyError && <div className="quote-error" role="alert"><p>{historyError}</p><button type="button" className="button" onClick={() => { void loadHistory(history.request); }}>Tentar novamente</button></div>}<div className="quote-versions">{history.versions.map(version => <details key={version.revision}><summary><span className="quote-version-index">{String(version.revision).padStart(2, "0")}</span><span><strong>{actions[version.action] ?? "Pedido atualizado"}</strong><small>{formatQuoteDate(version.changedAt, true)}</small></span><span className="quote-version-amount">{recordAmount(version.snapshot)}</span><span aria-hidden="true">+</span></summary><QuoteSnapshot record={version.snapshot} /></details>)}</div>{historyLoading && <p className="quote-loading" role="status">Carregando alterações…</p>}{history.nextBefore && <button type="button" className="button quote-load-more" disabled={historyLoading} onClick={() => { void loadHistory(history.request, history.nextBefore!); }}>Carregar alterações anteriores</button>}</section>}
+    {history && <section className="quote-history" aria-labelledby="quote-history-title"><div className="quote-history-heading"><div><span className="section-kicker">CADA ALTERAÇÃO FICA REGISTRADA</span><h2 id="quote-history-title" tabIndex={-1} ref={historyHeading}>Histórico de {history.request.clientName}</h2><p>Criado em {formatQuoteDate(history.request.createdAt, true)} · {history.request.revision} {history.request.revision === 1 ? "versão" : "versões"} registradas</p></div><button className="button" type="button" onClick={() => { ++historyGeneration.current; setHistory(null); setHistoryLoading(false); }}>Fechar histórico</button></div>{historyError && <div className="quote-error" role="alert"><p>{historyError}</p><button type="button" className="button" onClick={() => { void loadHistory(history.request); }}>Tentar novamente</button></div>}<div className="quote-versions">{history.versions.map(version => <details key={version.revision}><summary><span className="quote-version-index">{String(version.revision).padStart(2, "0")}</span><span><strong>{version.action === "sent" && version.snapshot.archivedAt ? "Enviado e arquivado" : actions[version.action] ?? "Pedido atualizado"}</strong><small>{formatQuoteDate(version.changedAt, true)}</small></span><span className="quote-version-amount">{recordAmount(version.snapshot)}</span><span aria-hidden="true">+</span></summary><QuoteSnapshot record={version.snapshot} /></details>)}</div>{historyLoading && <p className="quote-loading" role="status">Carregando alterações…</p>}{history.nextBefore && <button type="button" className="button quote-load-more" disabled={historyLoading} onClick={() => { void loadHistory(history.request, history.nextBefore!); }}>Carregar alterações anteriores</button>}</section>}
   </div>;
 }
 

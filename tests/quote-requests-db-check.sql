@@ -68,6 +68,12 @@ begin
   assert not (result->'request' ? 'user_id') and not (result->'request' ? 'password'), 'Private metadata leaked';
   assert result->'request'->>'createdAt'=result->'request'->>'updatedAt', 'Creation timestamps inconsistent';
   first_snapshot := result->'request';
+  foreach privileged_role in array array['cafe','integrada','2.3','2,30 x 2,00','230 × 200 cm'] loop
+    previous := public.mp_shared_quote_requests('quote_list',jsonb_build_object('userId',u1,'scope','active','filter','all','search',privileged_role),a1);
+    assert jsonb_array_length(previous->'requests')=1, 'Client/item/measurement search failed: ' || privileged_role;
+    previous := public.mp_shared_quote_requests('quote_list',jsonb_build_object('userId',u2,'scope','active','filter','all','search',privileged_role),a2);
+    assert jsonb_array_length(previous->'requests')=0, 'Search leaked another account';
+  end loop;
   result := public.mp_shared_quote_requests('quote_create',original_create,a1);
   assert result->>'replayed'='true' and (result->'request'->>'revision')::integer=1, 'Create is not idempotent';
 
@@ -120,6 +126,11 @@ begin
     assert (result->'request'->>'amountCents')::integer=0, 'Status action lost amount';
     if privileged_role='sent' then
       assert result->'request'->>'sent'='true' and result->'request'->>'sentAt' is not null, 'Sent status missing';
+      assert result->'request'->>'archivedAt' is not null, 'Sent request not automatically archived';
+      previous := public.mp_shared_quote_requests('quote_list',jsonb_build_object('userId',u1,'scope','active','filter','all'),a1);
+      assert jsonb_array_length(previous->'requests')=0, 'Sent request remains active';
+      previous := public.mp_shared_quote_requests('quote_list',jsonb_build_object('userId',u1,'scope','archived','filter','all','search','2.3'),a1);
+      assert jsonb_array_length(previous->'requests')=1, 'Sent request missing from dedicated archive';
     elsif privileged_role='unsent' then
       assert result->'request'->>'sent'='false' and result->'request'->'sentAt'='null'::jsonb, 'Unsent timestamp retained';
     elsif privileged_role='archived' then
@@ -179,6 +190,16 @@ begin
   assert cardinality(listed_ids)=28, 'List cursor omitted requests';
   assert not (second_page->'requests'->0 ? 'amountCents'), 'Legacy record without amount was fabricated';
   assert (list_page->'counts'->>'total')::integer=29, 'Total count excludes saved records';
+
+  -- Both a new already-sent request and an edit false -> true must archive atomically.
+  result := public.mp_shared_quote_requests('quote_create',jsonb_build_object('userId',u1,'id',gen_random_uuid(),'mutationId',gen_random_uuid(),
+    'data',fields || '{"clientName":"QA Enviado","sent":true}'::jsonb),a1);
+  assert result->'request'->>'archivedAt' is not null, 'Already-sent create not archived';
+  result := public.mp_shared_quote_requests('quote_update',jsonb_build_object('userId',u1,'id',v_request_id,'mutationId',gen_random_uuid(),
+    'baseRevision',current_revision,'data',fields || '{"sent":true}'::jsonb),a1);
+  assert result->'request'->>'archivedAt' is not null and result->'request'->>'sent'='true', 'Sent edit not archived';
+  previous := public.mp_shared_quote_requests('quote_list',jsonb_build_object('userId',u1,'scope','archived','filter','all','search','cafe'),a1);
+  assert jsonb_array_length(previous->'requests')=1, 'Archive measurement search incorrect';
 
   update mp_shared_private.sessions set revoked_at=clock_timestamp() where token_hash=h1;
   result := public.mp_shared_quote_requests('quote_get',jsonb_build_object('userId',u1,'id',v_request_id),a1);

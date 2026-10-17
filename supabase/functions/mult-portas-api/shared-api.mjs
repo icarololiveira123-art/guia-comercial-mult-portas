@@ -330,7 +330,7 @@ export function createSharedApi({ store, accessPassword = "", allowedOrigins = [
         const scope = params.get("scope") ?? "active";
         const filter = params.get("filter") ?? "all";
         const search = (params.get("search") ?? "").trim();
-        if (!["active", "history"].includes(scope) || !["all", "sent", "pending"].includes(filter) || search.length > 120) throw new ApiError(400, "Os filtros do pedido são inválidos.");
+        if (!["active", "archived", "history"].includes(scope) || !["all", "sent", "pending"].includes(filter) || search.length > 120) throw new ApiError(400, "Os filtros do pedido são inválidos.");
         let cursor = {};
         if (params.has("cursor")) {
           const parts = params.get("cursor").split("|");

@@ -13,6 +13,7 @@ import { FollowUpRow } from "./followup-row";
 import { followUpStatusOptions as statusOptions, prepareFollowUpEdit } from "./lib/followup-edit.mjs";
 import { normalizeQuoteAmountCents } from "./lib/quote-amount.mjs";
 import { catalogItems as catalogItemData } from "./lib/catalog-items.mjs";
+import { catalogMatchesSearch } from "./lib/search.mjs";
 import { localApiFetch } from "./lib/github-local-api.mjs";
 import { createSharedApiFetch, SHARED_SESSION_KEY } from "./lib/shared-api-client.mjs";
 import { sharedApiBaseUrl } from "./lib/shared-api-config.mjs";
@@ -2422,11 +2423,10 @@ export default function Home() {
   );
   const families = useMemo(() => ["Todas", ...Array.from(new Set(catalogItems.filter((item) => item.brand === brand).map((item) => item.family)))], [brand]);
   const filteredCatalog = useMemo(() => {
-    const term = catalogSearch.trim().toLowerCase();
     return catalogItems.filter((item) => {
       const matchesBrand = item.brand === brand;
       const matchesFamily = catalogFamily === "Todas" || item.family === catalogFamily;
-      const matchesTerm = !term || `${item.title} ${item.family} ${item.code || ""} ${item.spec}`.toLowerCase().includes(term);
+      const matchesTerm = catalogMatchesSearch(item, catalogSearch);
       return matchesBrand && matchesFamily && matchesTerm;
     });
   }, [brand, catalogFamily, catalogSearch]);
