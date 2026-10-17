@@ -82,3 +82,24 @@ test("quote dates use Brasilia's day boundary and summaries keep the client's re
   assert.match(buildQuoteRequestSummary({ ...request, amountCents: 0 }), /Valor total: R\$\s*0,00/);
   assert.doesNotMatch(buildQuoteRequestSummary({ ...request, amountCents: null }), /Valor total:/);
 });
+
+test("height, width and free measurements are independently optional and preserve the supplied units", () => {
+  const base = fields();
+  for (const dimensions of [{}, { height: "" }, { width: "" }, { height: null, width: null, measurements: null },
+    { height: "2,30 m" }, { width: "230 cm" }, { measurements: "Conferir o vão" },
+    { height: " 2,30 m ", width: " 2000 mm ", measurements: " Medida livre do cliente " }]) {
+    const result = validateQuoteFields({ ...base, items: [{ ...base.items[0], measurements: "", ...dimensions }] });
+    assert.equal(result.items[0].height, (dimensions.height ?? "").trim());
+    assert.equal(result.items[0].width, (dimensions.width ?? "").trim());
+    assert.equal(result.items[0].measurements, (dimensions.measurements ?? "").trim());
+  }
+  for (const key of ["height", "width"]) {
+    for (const value of [12, {}, [], "x".repeat(81), "2\u0000m"]) {
+      assert.throws(() => validateQuoteFields({ ...base, items: [{ ...base.items[0], [key]: value }] }));
+    }
+  }
+  const record = validateQuoteFields({ ...base, items: [{ ...base.items[0], height: "2,30 m", width: "2,00 m", measurements: "Vão a confirmar" }] });
+  assert.match(buildQuoteRequestSummary(record), /Altura: 2,30 m \| Largura: 2,00 m \| Vão a confirmar/);
+  const blank = validateQuoteFields({ ...base, items: [{ ...base.items[0], measurements: "" }] });
+  assert.doesNotMatch(buildQuoteRequestSummary(blank), /Altura:|Largura:/);
+});

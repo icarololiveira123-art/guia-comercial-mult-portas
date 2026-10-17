@@ -1062,6 +1062,7 @@ body { background: var(--bg); color: var(--ink); font-family: Inter, ui-sans-ser
 .quote-item-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .quote-item-head strong { color: #638057; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; }
 .quote-item-head button { min-height: 28px; padding: 2px 0; border: 0; color: #8b6650; background: transparent; font-size: 10px; text-decoration: underline; text-underline-offset: 3px; }
+.quote-item-dimensions { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
 .quote-item-measures { display: grid; grid-template-columns: minmax(0,1fr) 100px; gap: 12px; }
 .quote-add-item { width: 100%; min-height: 44px; margin-top: 13px; border: 1px dashed #a8bea0; color: #285449; background: #f0f5e8; font-size: 12px; text-align: center; }
 .quote-value-box { margin: 26px 0 21px; padding: 19px; border: 1px solid #c7d8b8; border-radius: 8px; background: #eaf1e0; }

@@ -990,3 +990,29 @@ test("all quote operations use their dedicated RPC and forward only the minimal 
   }
   assert.equal(captured.length, 6);
 });
+
+test("quote items save with no dimensions and synchronize optional height and width without losing earlier history", async () => {
+  const f = fixture();
+  const alice = await f.register();
+  const body = newQuote();
+  body.items = [{ ...body.items[0], measurements: "" }];
+  const created = await f.call("/api/quote-requests", { method: "POST", token: alice.token, body });
+  assert.equal(created.status, 201);
+  assert.equal(created.body.request.items[0].height, "");
+  assert.equal(created.body.request.items[0].width, "");
+  assert.equal(created.body.request.items[0].measurements, "");
+  const elsewhere = createSharedApi(f.options);
+  const login = await f.call("/api/auth/login", { method: "POST", body: { username: "alice", password: alice.password } }, elsewhere);
+  const path = `/api/quote-requests/${body.id}`;
+  const withDimensions = { ...body, baseRevision: 1, mutationId: crypto.randomUUID(), items: [{ ...body.items[0], height: "2,30 m", width: "230 cm", measurements: "Confirmar vão na obra" }] };
+  const edited = await f.call(path, { method: "PUT", token: login.body.token, body: withDimensions }, elsewhere);
+  assert.equal(edited.status, 200);
+  const remote = await f.call(path, { token: alice.token });
+  assert.equal(remote.body.request.items[0].height, "2,30 m");
+  assert.equal(remote.body.request.items[0].width, "230 cm");
+  assert.equal(remote.body.request.items[0].measurements, "Confirmar vão na obra");
+  const cleared = await f.call(path, { method: "PUT", token: alice.token, body: { ...body, baseRevision: 2, mutationId: crypto.randomUUID(), items: [{ ...body.items[0], height: "", width: "", measurements: "" }] } });
+  assert.equal(cleared.status, 200);
+  const history = await f.call(path + "/history", { token: login.body.token }, elsewhere);
+  assert.deepEqual(history.body.versions.map(v => [v.snapshot.items[0].height, v.snapshot.items[0].width, v.snapshot.items[0].measurements]), [["", "", ""], ["2,30 m", "230 cm", "Confirmar vão na obra"], ["", "", ""]]);
+});
