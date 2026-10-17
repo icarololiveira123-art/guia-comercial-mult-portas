@@ -64,7 +64,6 @@ export function QuoteRequests({ userId, request, active }: Props) {
   const storageKey = `mult-portas-quote-draft-v2:${userId}`;
   const [draft, setDraft] = useState<Draft>(() => readDraft(storageKey));
   const [scope, setScope] = useState<"active" | "archived">("active");
-  const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [searchReady, setSearchReady] = useState("");
   const [rows, setRows] = useState<QuoteRequestRecord[]>([]);
@@ -141,7 +140,7 @@ export function QuoteRequests({ userId, request, active }: Props) {
     listController.current = controller;
     const generation = ++listGeneration.current;
     setLoading(true); setListError("");
-    const params = new URLSearchParams({ scope, filter, search: searchReady });
+    const params = new URLSearchParams({ scope, filter: "all", search: searchReady });
     if (cursor) params.set("cursor", cursor);
     try {
       const result = await call<ListReply>(`/api/quote-requests?${params}`, undefined, controller);
@@ -151,7 +150,7 @@ export function QuoteRequests({ userId, request, active }: Props) {
     } catch (error) {
       if (!isAbort(error) && generation === listGeneration.current) setListError(messageOf(error));
     } finally { if (mounted.current && generation === listGeneration.current) setLoading(false); }
-  }, [scope, filter, searchReady, call]);
+  }, [scope, searchReady, call]);
   useEffect(() => {
     if (!active) { listController.current?.abort(); return; }
     const timer = window.setTimeout(() => { setRows([]); setNextCursor(null); void loadList(); }, 0);
@@ -249,8 +248,8 @@ export function QuoteRequests({ userId, request, active }: Props) {
     <div className="quote-layout">
       <section className="quote-ledger" aria-labelledby="quote-list-title">
         <div className="quote-ledger-head"><span className="section-kicker">SUA CARTEIRA DE PEDIDOS</span><h2 id="quote-list-title">{scope === "archived" ? "Pedidos arquivados." : "Acompanhe cada cliente."}</h2><p>{scope === "archived" ? "Pedidos guardados, com seus dados e todas as alterações. Você pode restaurá-los quando precisar." : "Ao marcar um pedido como enviado, ele vai automaticamente para Arquivados."}</p></div>
-        <div className="quote-tabs" aria-label="Listas de pedidos"><button type="button" aria-pressed={scope === "active"} onClick={() => { setScope("active"); setFilter("all"); }}>Em andamento</button><button type="button" aria-pressed={scope === "archived"} onClick={() => { setScope("archived"); setFilter("all"); }}>Arquivados</button></div>
-        <div className="quote-filters"><label>Buscar cliente, item ou medida<input type="search" maxLength={120} placeholder="Nome, produto, medida…" value={search} onChange={event => setSearch(event.target.value)} /></label><label>Envio ao cliente<select value={filter} onChange={event => setFilter(event.target.value)}><option value="all">Todos os status</option><option value="pending">Ainda não enviados</option><option value="sent">Enviados</option></select></label></div>
+        <div className="quote-tabs" aria-label="Listas de pedidos"><button type="button" aria-pressed={scope === "active"} onClick={() => setScope("active")}>Em andamento</button><button type="button" aria-pressed={scope === "archived"} onClick={() => setScope("archived")}>Arquivados</button></div>
+        <div className="quote-filters"><label>Buscar por nome, telefone ou medida<input type="search" maxLength={120} placeholder="Nome, telefone ou medida…" value={search} onChange={event => setSearch(event.target.value)} /></label></div>
         {listError && <div className="quote-error" role="alert"><p>{listError}</p><button type="button" className="button" onClick={() => { void loadList(); }}>Tentar novamente</button></div>}
         <div className="quote-list" aria-busy={loading}>
           {rows.map(record => <article className={`quote-record${draft.id === record.id ? " is-selected" : ""}`} key={record.id}>
@@ -259,7 +258,7 @@ export function QuoteRequests({ userId, request, active }: Props) {
             <div className="quote-record-meta"><span>Criado {formatQuoteDate(record.createdAt, true)}</span><strong>{recordAmount(record)}</strong>{record.archivedAt && <span className="quote-archive-label">Arquivado</span>}</div>
             <div className="quote-record-actions"><button type="button" onClick={() => openEditor(record)} disabled={disabled}>Editar pedido</button><button type="button" onClick={() => { void loadHistory(record); }} disabled={historyLoading}>Ver alterações</button><button type="button" onClick={() => { void copy(record); }}>Copiar resumo</button><button type="button" onClick={() => { void changeStatus(record, record.sent ? "unsent" : "sent"); }} disabled={disabled}>{record.sent ? "Marcar não enviado" : "Marcar enviado"}</button><button type="button" onClick={() => { void changeStatus(record, record.archivedAt ? "restored" : "archived"); }} disabled={disabled}>{actionBusy === record.id ? "Salvando…" : record.archivedAt ? "Restaurar pedido" : "Arquivar"}</button></div>
           </article>)}
-          {!rows.length && !loading && !listError && <div className="quote-empty"><WorkspaceIcon name="work" /><strong>{searchReady || filter !== "all" ? "Nenhum pedido com esses filtros." : scope === "archived" ? "Nenhum pedido arquivado." : "Seu próximo atendimento começa aqui."}</strong><p>{searchReady || filter !== "all" ? "Tente outro nome ou altere os filtros." : scope === "archived" ? "Os pedidos enviados ou arquivados serão guardados nesta aba." : "Preencha o cliente e os itens ao lado para criar o primeiro pedido."}</p></div>}
+          {!rows.length && !loading && !listError && <div className="quote-empty"><WorkspaceIcon name="work" /><strong>{searchReady ? "Nenhum pedido encontrado nesta busca." : scope === "archived" ? "Nenhum pedido arquivado." : "Seu próximo atendimento começa aqui."}</strong><p>{searchReady ? "Tente outro nome, telefone ou medida." : scope === "archived" ? "Os pedidos enviados ou arquivados serão guardados nesta aba." : "Preencha o cliente e os itens ao lado para criar o primeiro pedido."}</p></div>}
           {loading && <p className="quote-loading" role="status">Carregando pedidos…</p>}
         </div>
         {nextCursor && <button className="button quote-load-more" type="button" disabled={loading} onClick={() => { void loadList(nextCursor); }}>Carregar pedidos anteriores</button>}

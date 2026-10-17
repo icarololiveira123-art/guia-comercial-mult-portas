@@ -9,5 +9,7 @@ export const searchCases = [
   ['João porta 230 cm', true], ['2,35', false], ['0,30', false], ['1,2 x 2,3', false], ['2,30 x 2,30', false],
   ['2,30 x 1,50', false], ['2,30 branco', false], ['não existe', false], ['%', false], ['_', false],
   ['16981234567', true], ['entrega obra', true], ['porta 3 folhas', false],
+  ['(16) 98123-4567', true], ['16 98123 4567', true], ['+55 (16) 98123-4567', true],
+  ['16.98123.4567', true], ['981234567', true], ['4567', true], ['98123-0000', false], ['(11) 98123-4567', false],
 ];
 

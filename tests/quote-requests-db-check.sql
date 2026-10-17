@@ -56,7 +56,7 @@ begin
   values (h1,'user',u1,'qa-quote-version-1',clock_timestamp()+interval '1 hour'),
          (h2,'user',u2,'qa-quote-version-2',clock_timestamp()+interval '1 hour'),
          (ha,'admin',null,'quote-db-admin-version',clock_timestamp()+interval '1 hour');
-  fields := jsonb_build_object('clientName','QA Cliente Café','contact','16900000000','requestedOn','2026-10-16',
+  fields := jsonb_build_object('clientName','QA Cliente Café','contact','(16) 90000-0000','requestedOn','2026-10-16',
     'notes','Dimensões livres e conservação do histórico','sent',false,'amountCents',125050,
     'items',jsonb_build_array(jsonb_build_object('id',item_id,'description','Porta integrada 2 folhas',
       'measurements','2,30Ax2,00L','quantity',1,'details','Preto | VD Temp')));
@@ -68,7 +68,7 @@ begin
   assert not (result->'request' ? 'user_id') and not (result->'request' ? 'password'), 'Private metadata leaked';
   assert result->'request'->>'createdAt'=result->'request'->>'updatedAt', 'Creation timestamps inconsistent';
   first_snapshot := result->'request';
-  foreach privileged_role in array array['cafe','integrada','2.3','2,30 x 2,00','230 × 200 cm'] loop
+  foreach privileged_role in array array['cafe','integrada','2.3','2,30 x 2,00','230 × 200 cm','16900000000','+55 (16) 90000-0000','0000'] loop
     previous := public.mp_shared_quote_requests('quote_list',jsonb_build_object('userId',u1,'scope','active','filter','all','search',privileged_role),a1);
     assert jsonb_array_length(previous->'requests')=1, 'Client/item/measurement search failed: ' || privileged_role;
     previous := public.mp_shared_quote_requests('quote_list',jsonb_build_object('userId',u2,'scope','active','filter','all','search',privileged_role),a2);
@@ -131,6 +131,8 @@ begin
       assert jsonb_array_length(previous->'requests')=0, 'Sent request remains active';
       previous := public.mp_shared_quote_requests('quote_list',jsonb_build_object('userId',u1,'scope','archived','filter','all','search','2.3'),a1);
       assert jsonb_array_length(previous->'requests')=1, 'Sent request missing from dedicated archive';
+      previous := public.mp_shared_quote_requests('quote_list',jsonb_build_object('userId',u1,'scope','archived','filter','all','search','16900000000'),a1);
+      assert jsonb_array_length(previous->'requests')=1, 'Phone search missing from archived list';
     elsif privileged_role='unsent' then
       assert result->'request'->>'sent'='false' and result->'request'->'sentAt'='null'::jsonb, 'Unsent timestamp retained';
     elsif privileged_role='archived' then

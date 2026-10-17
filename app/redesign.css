@@ -1015,7 +1015,7 @@ body { background: var(--bg); color: var(--ink); font-family: Inter, ui-sans-ser
 .quote-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin: 0 25px 19px; padding: 4px; border: 1px solid #d5ddce; border-radius: 8px; background: #f1f4eb; }
 .quote-tabs button { min-height: 42px; padding: 8px 10px; border: 0; border-radius: 5px; color: #63715e; background: transparent; font-size: 12px; font-weight: 750; }
 .quote-tabs button[aria-pressed="true"] { color: #fff; background: #285449; }
-.quote-filters { display: grid; grid-template-columns: minmax(0,1.2fr) minmax(0,1fr); gap: 12px; padding: 0 25px 22px; border-bottom: 1px solid var(--soft-line); }
+.quote-filters { display: grid; grid-template-columns: minmax(0,1fr); gap: 12px; padding: 0 25px 22px; border-bottom: 1px solid var(--soft-line); }
 .quote-page label { display: block; min-width: 0; color: #344d3d; font-size: 12px; font-weight: 700; line-height: 1.5; }
 .quote-page label small { color: #71806a; font-size: 10px; font-weight: 400; }
 .quote-page label > span[aria-hidden="true"] { color: #8c5f3f; }
@@ -1145,7 +1145,6 @@ body { background: var(--bg); color: var(--ink); font-family: Inter, ui-sans-ser
   .quote-layout { grid-template-columns: 1fr; }
   .quote-editor { grid-row: 1; }
   .quote-field-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
-  .quote-filters { grid-template-columns: minmax(0,1.2fr) minmax(0,1fr); }
   .quote-snapshot dl { grid-template-columns: repeat(2,minmax(0,1fr)); }
 }
 @media (max-width: 560px) {

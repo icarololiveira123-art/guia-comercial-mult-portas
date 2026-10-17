@@ -40,11 +40,20 @@ export function matchesSearch(source, query, dimensions = source) {
     : sourceTokens.some(candidate => candidate.startsWith('w:') && candidate.includes(token.slice(2))));
 }
 
+function matchesPhone(contact, query) {
+  const text = query.trim();
+  const digits = text.replace(/[^0-9]/g, '');
+  if (!/^\+?[0-9\s().-]+$/.test(text) || digits.length < 4 || (text.includes('.') && digits.length < 8)) return false;
+  const national = value => /^55[0-9]{10,11}$/.test(value) ? value.slice(2) : value;
+  return national(contact.replace(/[^0-9]/g, '')).includes(national(digits));
+}
+
 /** Search one item at a time so different products cannot supply half a measurement each.
  * @param {{clientName: string, contact?: string, notes?: string, items?: Array<{description?: string, height?: string, width?: string, measurements?: string, details?: string}>}} request
  * @param {string} query
  */
 export function quoteMatchesSearch(request, query) {
+  if (matchesPhone(request.contact ?? '', query)) return true;
   const common = [request.clientName, request.contact, request.notes].filter(Boolean).join(' ');
   const items = request.items?.length ? request.items : [{}];
   return items.some(item => {

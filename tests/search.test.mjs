@@ -34,6 +34,17 @@ test('normalization preserves numeric precision, zeros, literal punctuation and 
   assert.equal(matchesSearch('Janela 1,20 × 1,50 m', '1,20 x 1,20'), false);
 });
 
+test('phone search ignores punctuation and optional Brazilian country code without changing the contact', () => {
+  for (const contact of ['16981234567','(16) 98123-4567','+55 (16) 98123-4567','55 16 98123 4567']) {
+    const record = { clientName: 'Cliente', contact, items: [{ description: 'Porta', height: '2,30 m' }] };
+    const before = structuredClone(record);
+    for (const query of ['16981234567','(16) 98123-4567','+55 16 98123 4567','981234567','4567']) assert.equal(quoteMatchesSearch(record,query),true,`${contact}: ${query}`);
+    for (const query of ['(11) 98123-4567','98123-0000','2,35','2.300']) assert.equal(quoteMatchesSearch({ ...record, items: [] },query),false,query);
+    assert.equal(quoteMatchesSearch(record,'2.30'),true);
+    assert.deepEqual(record,before);
+  }
+});
+
 test('catalog search finds codes, accent-insensitive words and dimensions in all searchable commercial fields', () => {
   const item = { title: 'Vitrô maxim-ar', family: 'Alumínio', code: 'VTR-340', spec: '120 × 150 cm', bestFor: 'Ventilação da cozinha', checks: ['Vidro temperado'] };
   for (const query of ['VTR-340', 'aluminio', 'maxim ar', '1,20 x 1,50', '1200 mm x 1500 mm', 'ventilacao cozinha', 'vidro']) assert.equal(catalogMatchesSearch(item, query), true, query);

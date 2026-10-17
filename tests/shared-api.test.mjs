@@ -1169,3 +1169,23 @@ test("sending archives atomically, archived lists stay separate, and restoring o
   assert.equal(edited.sent, true);
   assert.equal(edited.revision, 2);
 });
+
+test('phone searches find only the selected user in active and archived lists with or without formatting', async () => {
+  const f = fixture();
+  const alice = await f.register();
+  const bob = await f.register('bob');
+  const body = newQuote({ clientName: 'Cliente Telefone', contact: '(16) 98123-4567' });
+  assert.equal((await f.call('/api/quote-requests', { method: 'POST', token: alice.token, body })).status,201);
+  for (const scope of ['active','archived']) {
+    if (scope==='archived') assert.equal((await f.call(`/api/quote-requests/${body.id}`, { method: 'PATCH', token: alice.token, body: { action: 'sent', baseRevision:1, mutationId:crypto.randomUUID() } })).status,200);
+    for (const query of ['16981234567','(16) 98123-4567','+55 (16) 98123-4567','981234567','4567']) {
+      const url=`/api/quote-requests?scope=${scope}&search=${encodeURIComponent(query)}`;
+      const found=await f.call(url,{token:alice.token});
+      assert.equal(found.status,200);
+      assert.deepEqual(found.body.requests.map(row=>row.id),[body.id],`${scope}: ${query}`);
+      assert.equal(found.body.requests[0].contact,'(16) 98123-4567');
+      assert.equal((await f.call(url,{token:bob.token})).body.requests.length,0);
+    }
+    assert.equal((await f.call(`/api/quote-requests?scope=${scope}&search=11981234567`,{token:alice.token})).body.requests.length,0);
+  }
+});
