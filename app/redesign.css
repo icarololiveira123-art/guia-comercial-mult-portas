@@ -1071,6 +1071,20 @@ body { background: var(--bg); color: var(--ink); font-family: Inter, ui-sans-ser
 .quote-currency-input > span { color: #58734c; font-size: 20px; }
 .quote-currency-input input { margin-top: 0!important; font-size: 20px!important; font-variant-numeric: tabular-nums; }
 .quote-value-box p { margin: 11px 0 0; color: #66775b; font-size: 11px; line-height: 1.65; }
+.quote-item-price { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,.85fr); gap: 10px 16px; min-width: 0; padding-top: 15px; border-top: 1px solid #d6dfce; }
+.quote-item-price .quote-currency-input { gap: 6px; }
+.quote-item-price .quote-currency-input > span { font-size: 13px; }
+.quote-item-price .quote-currency-input input { font-size: 15px!important; }
+.quote-item-subtotal { align-self: end; padding-bottom: 8px; min-width: 0; }
+.quote-item-subtotal > span { display: block; color: #64775c; font-size: 10px; }
+.quote-item-subtotal output { display: block; margin-top: 9px; color: #285449; font-size: 16px; font-weight: 750; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.quote-item-price p { grid-column: 1 / -1; margin: 0; color: #718068; font-size: 10px; line-height: 1.65; }
+.quote-item-price p.quote-price-error { color: #834934; }
+.quote-total-box > span { display: block; color: #285449; font-size: 12px; font-weight: 700; }
+.quote-total-box output { display: block; margin-top: 8px; color: #285449; font-size: 25px; font-weight: 750; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.quote-legacy-value { margin: -7px 0 21px; padding: 14px; border: 1px solid #ddcfb5; border-radius: 7px; color: #776039; background: #faf4e5; font-size: 11px; line-height: 1.65; overflow-wrap: anywhere; }
+.quote-legacy-value p { margin: 5px 0; }
+.quote-legacy-value button { min-height: 32px; padding: 3px 0; border: 0; color: #776039; background: transparent; font-size: 10px; text-decoration: underline; text-underline-offset: 3px; }
 .quote-sent-check { display: flex!important; align-items: flex-start; gap: 12px; margin-top: 21px; padding: 17px; border: 1px solid #d3dccb; border-radius: 7px; background: #f2f5eb; cursor: pointer; }
 .quote-sent-check input { flex: 0 0 auto; width: 19px; height: 19px; margin: 1px 0 0; accent-color: #285449; }
 .quote-sent-check span { min-width: 0; }
