@@ -89,7 +89,7 @@ export function validateQuoteFields(value) {
 export function buildQuoteRequestSummary(request) {
   return [`Cliente: ${request.clientName}`, `Solicitado em: ${formatQuoteDate(request.requestedOn)}`,
     ...request.items.map(item => `${item.quantity} × ${[item.description, item.height ? `Altura: ${normalizeQuoteDimension(item.height)}` : '', item.width ? `Largura: ${normalizeQuoteDimension(item.width)}` : '', item.measurements, item.details,
-      ...(item.unitAmountCents != null ? [`Valor unitário: ${formatQuoteAmount(item.unitAmountCents)}`, `Subtotal: ${formatQuoteAmount(calculateQuotePricing([item]).amountCents)}`] : request.pricingMode === 'items' ? ['Valor a informar'] : [])].filter(Boolean).join(' | ')}`),
+      ...(item.unitAmountCents != null ? [`Valor unitário: ${formatQuoteAmount(item.unitAmountCents)}`, `Subtotal: ${formatQuoteAmount(calculateQuotePricing([item]).amountCents)}`] : [])].filter(Boolean).join(' | ')}`),
     ...(request.amountCents != null ? [`${request.pricingMode === 'items' && request.items.some(item => item.unitAmountCents == null) ? 'Subtotal dos itens preenchidos (parcial)' : 'Valor total'}: ${formatQuoteAmount(request.amountCents)}`] : []),
     ...(request.legacyAmountCents != null ? [`Total anterior, sem divisão por item (referência): ${formatQuoteAmount(request.legacyAmountCents)}`] : []),
     ...(request.notes ? [`Observações: ${request.notes}`] : [])].join('\n');

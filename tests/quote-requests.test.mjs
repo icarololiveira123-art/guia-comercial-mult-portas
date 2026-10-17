@@ -90,7 +90,7 @@ test("clearing all item prices leaves an unpriced total while legacy totals rema
   assert.throws(() => validateQuoteFields({ ...converted, legacyAmountCents: -1 }));
 });
 
-test("copied quotes identify each item's unit price, quantity subtotal, missing prices and legacy references", () => {
+test("copied quotes show entered prices and subtotals while omitting monetary placeholders for unpriced items", () => {
   const base = fields();
   const priced = validateQuoteFields({ ...base, pricingMode: "items", legacyAmountCents: 300000, items: [
     { ...base.items[0], quantity: 2, unitAmountCents: 125050 },
@@ -98,12 +98,19 @@ test("copied quotes identify each item's unit price, quantity subtotal, missing 
   ] });
   const partial = buildQuoteRequestSummary(priced);
   assert.match(partial, /Valor unitário: R\$ 1\.250,50 \| Subtotal: R\$ 2\.501,00/);
-  assert.match(partial, /Valor a informar/);
+  assert.doesNotMatch(partial, /Valor a informar|Não informado/);
+  const unpricedLine = partial.split("\n").find(line => line.startsWith("1 ×"));
+  assert.ok(unpricedLine);
+  assert.doesNotMatch(unpricedLine, /Valor|Subtotal|R\$/);
   assert.match(partial, /Subtotal dos itens preenchidos \(parcial\): R\$ 2\.501,00/);
   assert.match(partial, /Total anterior, sem divisão por item \(referência\): R\$ 3\.000,00/);
   const complete = validateQuoteFields({ ...priced, items: [{ ...priced.items[0], unitAmountCents: 0 }] });
   assert.match(buildQuoteRequestSummary(complete), /Valor total: R\$ 0,00/);
   assert.doesNotMatch(buildQuoteRequestSummary(complete), /parcial/);
+  const unpriced = validateQuoteFields({ ...base, pricingMode: "items", items: base.items.map(item => ({ ...item, unitAmountCents: null })) });
+  const unpricedSummary = buildQuoteRequestSummary(unpriced);
+  assert.match(unpricedSummary, /1 × Porta integrada 2 folhas/);
+  assert.doesNotMatch(unpricedSummary, /Valor|Subtotal|R\$|a informar|Não informado/);
 });
 
 test("quote validation rejects impossible dates, repeated IDs, missing clients and malformed quantities or text", () => {
