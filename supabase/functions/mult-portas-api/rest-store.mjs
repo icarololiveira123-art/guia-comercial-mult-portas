@@ -9,13 +9,15 @@ export function createRestStore({ url, serviceKey, fetchImpl = fetch }) {
   const workspaceActions = new Set(["workspace_open", "workspace_read", "workspace_save"]);
   const quotesEndpoint = new URL("/rest/v1/rpc/mp_shared_quote_requests", base).href;
   const quoteActions = new Set(["quote_list", "quote_get", "quote_history", "quote_create", "quote_update", "quote_action"]);
+  const activityEndpoint = new URL("/rest/v1/rpc/mp_shared_activity", base).href;
+  const activityActions = new Set(["activity_touch", "activity_list", "activity_get", "daily_list", "daily_get", "daily_quotes", "daily_accounts"]);
   return {
     async execute(action, payload = {}, auth = null) {
       // New sb_secret keys are API keys, not JWT bearer tokens. Legacy service
       // JWTs need both headers for compatibility with the PostgREST gateway.
       const headers = { "Content-Type": "application/json", apikey: serviceKey };
       if (!serviceKey.startsWith("sb_secret_")) headers.Authorization = `Bearer ${serviceKey}`;
-      const response = await fetchImpl(quoteActions.has(action) ? quotesEndpoint : workspaceActions.has(action) ? workspaceEndpoint : endpoint, {
+      const response = await fetchImpl(activityActions.has(action) ? activityEndpoint : quoteActions.has(action) ? quotesEndpoint : workspaceActions.has(action) ? workspaceEndpoint : endpoint, {
         method: "POST", headers, redirect: "error", cache: "no-store",
         body: JSON.stringify({ p_action: action, p_payload: payload,
           p_auth: auth ? { tokenHash: auth.tokenHash, adminVersion: auth.adminVersion, now: auth.now } : null }),

@@ -2,6 +2,8 @@
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { importLocalAccounts } from "./lib/local-account-migration.mjs";
+import { AccountActivity } from "./account-activity";
+import { AccountDailyBackup } from "./account-daily-backup";
 
 type Branch = "Araraquara" | "São Carlos";
 type AccountSummary = {
@@ -24,6 +26,9 @@ type AccountRecord = {
   branch: Branch;
   createdAt: string;
   dataUpdatedAt: string | null;
+  lastActiveAt?: string | null;
+  lastLoginAt?: string | null;
+  lastChangedAt?: string | null;
   summary?: AccountSummary;
 };
 type AccountEditorState = {
@@ -65,7 +70,7 @@ function formatDate(value: string | null) {
   if (!value) return "Ainda não usado";
   const date = new Date(value.split("|", 1)[0]);
   if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(date);
+  return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: "America/Sao_Paulo" }).format(date);
 }
 
 async function responseJson<T>(response: Response): Promise<T> {
@@ -99,19 +104,31 @@ export function AccountCenter({ onLogout, onOpenWorkspace, externalError, isGith
   const workspaceOpeningRef = useRef(false);
   const detailsRequestRef = useRef<{ id: number; controller: AbortController } | null>(null);
   const detailsRequestIdRef = useRef(0);
+  const selectedAccountRef = useRef<AccountRecord | null>(null);
+  const listLoadingRef = useRef(false);
+  const listControllerRef = useRef<AbortController | null>(null);
+  const [checkedAt, setCheckedAt] = useState<string | null>(null);
 
-  const loadAccounts = useCallback(async () => {
-    setLoading(true);
+  const loadAccounts = useCallback(async (background = false) => {
+    if (listLoadingRef.current) return;
+    listLoadingRef.current = true;
+    const controller = new AbortController();
+    listControllerRef.current = controller;
+    if (!background) setLoading(true);
     setError("");
     try {
-      const response = await request("/api/admin/users", { cache: "no-store" });
+      const response = await request("/api/admin/users", { cache: "no-store", signal: controller.signal });
       const payload = await responseJson<{ users?: AccountRecord[]; error?: string }>(response);
+      if (controller.signal.aborted) return;
       if (!response.ok) throw new Error(payload.error || "Não foi possível carregar as contas.");
       setAccounts(Array.isArray(payload.users) ? payload.users : []);
+      setCheckedAt(new Date().toISOString());
     } catch (loadError) {
+      if (controller.signal.aborted) return;
       setError(loadError instanceof Error ? loadError.message : "Não foi possível carregar as contas.");
     } finally {
-      setLoading(false);
+      listLoadingRef.current = false;
+      if (!controller.signal.aborted) setLoading(false);
     }
   }, [request]);
 
@@ -119,21 +136,23 @@ export function AccountCenter({ onLogout, onOpenWorkspace, externalError, isGith
     const timer = window.setTimeout(() => { void loadAccounts(); }, 0);
     return () => {
       window.clearTimeout(timer);
+      listControllerRef.current?.abort();
       detailsRequestRef.current?.controller.abort();
     };
   }, [loadAccounts]);
 
-  async function openAccount(account: AccountRecord) {
+  async function openAccount(account: AccountRecord, background = false) {
+    if (background && detailsRequestRef.current) return;
     detailsRequestRef.current?.controller.abort();
     const requestId = ++detailsRequestIdRef.current;
     const controller = new AbortController();
     detailsRequestRef.current = { id: requestId, controller };
-    setEditor(null);
+    selectedAccountRef.current = account;
+    if (!background) setEditor(null);
     setSelectedAccount(account);
-    setSelectedState(null);
-    setSelectedSummary(account.summary ?? emptySummary);
+    if (!background) { setSelectedState(null); setSelectedSummary(account.summary ?? emptySummary); }
     setDetailsError("");
-    setDetailsLoading(true);
+    if (!background) setDetailsLoading(true);
     try {
       const response = await request(`/api/admin/users/${account.id}`, { cache: "no-store", signal: controller.signal });
       if (detailsRequestRef.current?.id !== requestId) return;
@@ -141,6 +160,7 @@ export function AccountCenter({ onLogout, onOpenWorkspace, externalError, isGith
       if (detailsRequestRef.current?.id !== requestId) return;
       if (!response.ok || !payload.user) throw new Error(payload.error || "Não foi possível abrir os dados da conta.");
       setSelectedAccount(payload.user);
+      selectedAccountRef.current = payload.user;
       setSelectedState(payload.state && typeof payload.state === "object" && !Array.isArray(payload.state)
         ? payload.state as Record<string, unknown> : null);
       setSelectedSummary(payload.summary ?? payload.user.summary ?? emptySummary);
@@ -156,6 +176,7 @@ export function AccountCenter({ onLogout, onOpenWorkspace, externalError, isGith
   }
 
   function closeDetails() {
+    selectedAccountRef.current = null;
     detailsRequestRef.current?.controller.abort();
     detailsRequestRef.current = null;
     setDetailsLoading(false);
@@ -164,6 +185,22 @@ export function AccountCenter({ onLogout, onOpenWorkspace, externalError, isGith
     setSelectedState(null);
     setSelectedSummary(emptySummary);
   }
+
+  useEffect(() => {
+    if (!sharedAccess) return;
+    const refresh = () => {
+      if (document.visibilityState === "hidden" || workspaceOpeningRef.current) return;
+      void loadAccounts(true);
+      if (selectedAccountRef.current) void openAccount(selectedAccountRef.current, true);
+    };
+    const timer = window.setInterval(refresh, 15_000);
+    window.addEventListener("focus", refresh);
+    window.addEventListener("online", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => { window.clearInterval(timer); window.removeEventListener("focus", refresh); window.removeEventListener("online", refresh); document.removeEventListener("visibilitychange", refresh); };
+    // Reads the current selection from a ref; edits are never overwritten.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sharedAccess, loadAccounts]);
 
   async function openWorkspace(account: AccountRecord) {
     if (!onOpenWorkspace || workspaceOpeningRef.current) return;
@@ -316,15 +353,17 @@ export function AccountCenter({ onLogout, onOpenWorkspace, externalError, isGith
           <span className="section-kicker">PAINEL ADMINISTRATIVO</span>
           <h1>Equipe em um só lugar.</h1>
           <p>Organize os acessos, acompanhe o aprendizado e consulte os registros de cada pessoa.</p>
-          {isGithubPages && <small className="admin-local-note">Os dados deste painel pertencem a este navegador e aparelho.</small>}
+          {isGithubPages && !sharedAccess && <small className="admin-local-note">Os dados deste painel pertencem a este navegador e aparelho.</small>}
+          {sharedAccess && <small className="admin-sync-note">Atualização automática a cada 15 segundos · {checkedAt ? `Última consulta: ${formatDate(checkedAt)}` : "Conectando…"}</small>}
         </div>
 
         <section className="admin-summary account-overview" aria-label="Resumo da equipe">
           <div><strong>{accounts.length}</strong><span>Funcionários</span><small>perfis com dados separados</small></div>
-          <div><strong>{accounts.filter((account) => account.dataUpdatedAt).length}</strong><span>Contas utilizadas</span><small>{isGithubPages ? "com registros neste navegador" : "com registros sincronizados"}</small></div>
+          <div><strong>{accounts.filter((account) => sharedAccess ? account.lastActiveAt : account.dataUpdatedAt).length}</strong><span>Contas utilizadas</span><small>{isGithubPages && !sharedAccess ? "com registros neste navegador" : "com registros sincronizados"}</small></div>
           <div><strong>{trained.length}</strong><span>Em treinamento</span><small>com pelo menos uma rodada</small></div>
           <div><strong>{trained.length ? `${averageLearning}/100` : "—"}</strong><span>Aprendizado médio</span><small>de quem já treinou</small></div>
         </section>
+        {sharedAccess && <AccountDailyBackup request={request} />}
 
         {(error || externalError) && <div className="auth-error" role="alert">{error || externalError}</div>}
         {notice && <div className="account-notice" role="status">✓ {notice}</div>}
@@ -351,7 +390,7 @@ export function AccountCenter({ onLogout, onOpenWorkspace, externalError, isGith
                   <button className="admin-person-open" type="button" onClick={() => void openAccount(account)} aria-label={`Abrir dados de ${account.displayName}`} aria-pressed={selectedAccount?.id === account.id}>
                     <span className="account-avatar" aria-hidden="true">{account.displayName.slice(0, 1).toUpperCase()}</span>
                     <span className="account-main"><strong>{account.displayName}</strong><span>{account.username} · {account.branch}</span></span>
-                    <span className="admin-person-date">{account.dataUpdatedAt ? `Usado ${formatDate(account.dataUpdatedAt)}` : "Ainda sem registros"}</span>
+                    <span className="admin-person-date">{sharedAccess ? <><span>{account.lastActiveAt ? `Último uso: ${formatDate(account.lastActiveAt)}` : "Ainda sem uso registrado"}</span><small>{account.lastChangedAt ? `Alterado: ${formatDate(account.lastChangedAt)}` : "Sem alterações registradas"}</small></> : account.dataUpdatedAt ? `Usado ${formatDate(account.dataUpdatedAt)}` : "Ainda sem registros"}</span>
                     <span className="admin-person-arrow" aria-hidden="true">→</span>
                   </button>
                   <div className="admin-person-actions">
@@ -403,7 +442,8 @@ export function AccountCenter({ onLogout, onOpenWorkspace, externalError, isGith
                       <article><span>Carteira informada</span><strong>{selectedSummary.quotes}</strong><small>{selectedSummary.closed} vendas fechadas</small></article>
                       <article><span>Ações abertas</span><strong>{selectedSummary.pendingFollowUps}</strong><small>{selectedSummary.preparedFactoryItems} itens preparados para fábrica</small></article>
                     </div>
-                    <p className="admin-inspector-meta">Cadastro: {formatDate(selectedAccount.createdAt)} · Último registro: {selectedAccount.dataUpdatedAt ? formatDate(selectedAccount.dataUpdatedAt) : "sem dados"}</p>
+                    <p className="admin-inspector-meta">Cadastro: {formatDate(selectedAccount.createdAt)} · Último uso do funcionário: {selectedAccount.lastActiveAt ? formatDate(selectedAccount.lastActiveAt) : "sem registro"} · Última alteração: {selectedAccount.lastChangedAt ? formatDate(selectedAccount.lastChangedAt) : selectedAccount.dataUpdatedAt ? formatDate(selectedAccount.dataUpdatedAt) : "sem dados"}</p>
+                    {sharedAccess && <AccountActivity key={selectedAccount.id} userId={selectedAccount.id} request={request} />}
                     {stateEntries.length === 0 ? (
                       <div className="account-empty">Esta conta ainda não possui registros salvos.</div>
                     ) : (

@@ -21,6 +21,7 @@ import { applyClientProgress, collectClientProgress, normalizeClientProgress, me
 import { migrateLegacyEmployeeLogin, recoverLegacyEmployeeData } from "./lib/local-account-migration.mjs";
 import { readPendingBackup, archiveDamagedPendingBackup } from "./lib/pending-backup.mjs";
 import { readAccessSession } from "./lib/session-check.mjs";
+import { keepLocalWorkspace } from "./lib/local-workspace-archive.mjs";
 import { guidedCustomerReply } from "./api/coach/customer-policy.mjs";
 import {
   availableDalcomadKitValues,
@@ -1991,6 +1992,7 @@ export default function Home() {
         if (IS_SHARED_API) {
           progressStateRef.current = loadedProgress ?? { schemaVersion: 1 };
           progressSnapshotRef.current = JSON.stringify(progressStateRef.current);
+          if (state) void keepLocalWorkspace(authUserId, { state, clientState: progressStateRef.current, revision: revisionRef.current });
         }
       } catch (error) {
         if (!cancelled) {
@@ -2280,6 +2282,7 @@ export default function Home() {
     }
     pendingStateRef.current = { userId: authUser.id, state, baseRevision, ...(clientState ? { clientState } : {}) };
     writeLocalPendingState(authUser.id, { state, baseRevision, updatedAt: new Date().toISOString(), ...(clientState ? { clientState } : {}) });
+    if (IS_SHARED_API) void keepLocalWorkspace(authUser.id, { state, clientState, revision: baseRevision });
 
     const timer = window.setTimeout(() => {
       if (saveTimerRef.current === timer) saveTimerRef.current = null;
@@ -2293,7 +2296,7 @@ export default function Home() {
   }, [authUser, clientProgressVersion, dailyDone, dataLoaded, doneSales, doneTiming, drawerChecks, factoryItems, fairChannel, fairCity, fairClientName, fairConsultantName, fairDiscount, fairEmojiMode, fairEventDate, fairEventTime, fairInterest, fairProfileId, fairTone, flushPendingState, followUps, hydrated, marketingDaily, messageAudience, messageChannel, messageEnvironment, messageLine, messageName, messageObjective, messageProof, messageQuestion, messageTone, metrics, providerName, providerObjective, providerProfile, providerQuestion, providerRegion, providerType, trainingStats]);
 
   useEffect(() => {
-    if (!IS_GITHUB_PAGES || !authUserId || !hydrated || !dataLoaded) return;
+    if (!IS_GITHUB_PAGES || !authUserId || !hydrated || !dataLoaded || workspaceAccess) return;
     const resume = {
       section, brand, messageView, fairView, salesStep: activeSalesStep, timingStep: activeTimingStep, trainingScenario: activeTrainingScenario,
       factoryWizardStep, factoryWizardDraft,
@@ -2305,7 +2308,34 @@ export default function Home() {
         window.dispatchEvent(new CustomEvent(CLIENT_PROGRESS_EVENT, { detail: { userId: authUserId, resume } }));
       } catch { /* Preserve oversized local notes and keep business records available. */ }
     } else writeScopedLocalState(authUserId, "resume-v1", resume);
-  }, [authUserId, hydrated, dataLoaded, section, brand, messageView, fairView, activeSalesStep, activeTimingStep, activeTrainingScenario, factoryWizardStep, factoryWizardDraft, trainingStarted, trainingMessages, trainingInput]);
+  }, [authUserId, hydrated, dataLoaded, workspaceAccess, section, brand, messageView, fairView, activeSalesStep, activeTimingStep, activeTrainingScenario, factoryWizardStep, factoryWizardDraft, trainingStarted, trainingMessages, trainingInput]);
+
+  useEffect(() => {
+    if (!IS_SHARED_API || !authUserId || workspaceAccess || !dataLoaded) return;
+    let recentInteraction = Date.now();
+    let inFlight = false;
+    const interacted = () => { recentInteraction = Date.now(); };
+    const touch = async () => {
+      if (document.visibilityState === "hidden" || Date.now() - recentInteraction > 120_000 || inFlight || !navigator.onLine) return;
+      inFlight = true;
+      try { await apiFetch("/api/activity", { method: "POST" }); } catch { /* Business data keeps its independent retry queue. */ }
+      finally { inFlight = false; }
+    };
+    const visible = () => { if (document.visibilityState !== "hidden") { interacted(); void touch(); } };
+    const timer = window.setInterval(() => { void touch(); }, 60_000);
+    const initial = window.setTimeout(() => { void touch(); }, 0);
+    window.addEventListener("pointerdown", interacted, { passive: true });
+    window.addEventListener("keydown", interacted);
+    window.addEventListener("focus", visible);
+    window.addEventListener("online", visible);
+    document.addEventListener("visibilitychange", visible);
+    return () => {
+      window.clearInterval(timer); window.clearTimeout(initial);
+      window.removeEventListener("pointerdown", interacted); window.removeEventListener("keydown", interacted);
+      window.removeEventListener("focus", visible); window.removeEventListener("online", visible);
+      document.removeEventListener("visibilitychange", visible);
+    };
+  }, [authUserId, workspaceAccess, dataLoaded]);
 
   useEffect(() => {
     if (!IS_SHARED_API || !authUserId) return;

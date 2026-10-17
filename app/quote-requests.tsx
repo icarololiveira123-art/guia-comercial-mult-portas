@@ -1,4 +1,5 @@
 "use client";
+import { keepLocalQuotes } from "./lib/local-workspace-archive.mjs";
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { WorkspaceIcon } from "./workspace-icon";
@@ -145,12 +146,13 @@ export function QuoteRequests({ userId, request, active }: Props) {
     try {
       const result = await call<ListReply>(`/api/quote-requests?${params}`, undefined, controller);
       if (generation !== listGeneration.current) return;
+      void keepLocalQuotes(userId, result.requests);
       setRows(current => cursor ? [...current, ...result.requests.filter(item => !current.some(saved => saved.id === item.id))] : result.requests);
       setCounts(result.counts); setNextCursor(result.nextCursor);
     } catch (error) {
       if (!isAbort(error) && generation === listGeneration.current) setListError(messageOf(error));
     } finally { if (mounted.current && generation === listGeneration.current) setLoading(false); }
-  }, [scope, searchReady, call]);
+  }, [scope, searchReady, call, userId]);
   useEffect(() => {
     if (!active) { listController.current?.abort(); return; }
     const timer = window.setTimeout(() => { setRows([]); setNextCursor(null); void loadList(); }, 0);
@@ -177,6 +179,7 @@ export function QuoteRequests({ userId, request, active }: Props) {
     window.requestAnimationFrame(() => { formHeading.current?.focus(); formHeading.current?.scrollIntoView({ behavior: "smooth", block: "start" }); });
   }
   function putRecord(record: QuoteRequestRecord) {
+    void keepLocalQuotes(userId, [record]);
     setRows(current => current.flatMap(item => item.id !== record.id ? [item] : (scope === "active" ? !record.archivedAt : Boolean(record.archivedAt)) ? [record] : []));
     setHistory(current => current?.request.id === record.id ? null : current);
     setRefresh(current => current + 1);

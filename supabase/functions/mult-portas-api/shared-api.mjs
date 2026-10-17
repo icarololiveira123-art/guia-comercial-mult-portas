@@ -99,6 +99,7 @@ function publicUser(user) {
 function adminUser(user) {
   return {
     ...publicUser(user), createdAt: user.createdAt ?? null, dataUpdatedAt: user.dataUpdatedAt ?? null,
+    lastActiveAt: user.lastActiveAt ?? null, lastLoginAt: user.lastLoginAt ?? null, lastChangedAt: user.lastChangedAt ?? null,
     summary: summarizeEmployeeState(user.state ?? null),
   };
 }
@@ -316,6 +317,62 @@ export function createSharedApi({ store, accessPassword = "", allowedOrigins = [
     }
     const auth = await authenticate(request, clock);
     await rate(`session:${auth.tokenHash}`, 300, 60, clock);
+    if (route === "/api/activity" && method === "POST") {
+      if (auth.session.role !== "user") throw new ApiError(403, "Acesso não autorizado.");
+      return { value: await execute("activity_touch", { userId: auth.user.id }, auth) };
+    }
+    if (route === "/api/admin/daily" && method === "GET") {
+      requireAdmin(auth);
+      const day = new URL(request.url).searchParams.get("day");
+      if (!validQuoteDate(day)) throw new ApiError(400, "Selecione a data do backup.");
+      return { value: await execute("daily_accounts", { day }, auth) };
+    }
+    const activityRoute = /^\/api\/admin\/users\/([1-9]\d*)\/(activity|daily)(?:\/([^/]+)(?:\/(quotes))?)?$/.exec(route);
+    if (activityRoute && method === "GET") {
+      requireAdmin(auth);
+      const userId = accountId(activityRoute[1]);
+      const kind = activityRoute[2];
+      const id = activityRoute[3];
+      const params = new URL(request.url).searchParams;
+      const payload = { userId };
+      let action;
+      if (kind === "activity") {
+        if (activityRoute[4] || id && !isQuoteId(id)) throw new ApiError(400, "O registro selecionado é inválido.");
+        action = id ? "activity_get" : "activity_list";
+        if (id) payload.id = id;
+        if (params.has("cursor")) {
+          const parts = params.get("cursor").split("|");
+          if (parts.length !== 2 || !isQuoteId(parts[1]) || !/^\d{4}-\d{2}-\d{2}T[\d:.]+(?:Z|[+-]\d\d:\d\d)$/.test(parts[0]) || !Number.isFinite(Date.parse(parts[0]))) throw new ApiError(400, "A página do histórico é inválida.");
+          payload.cursorAt = parts[0]; payload.cursorId = parts[1];
+        }
+      } else {
+        if (id && !validQuoteDate(id) || params.has("before") && !validQuoteDate(params.get("before"))) throw new ApiError(400, "A data do fechamento é inválida.");
+        action = id ? activityRoute[4] ? "daily_quotes" : "daily_get" : "daily_list";
+        if (id) payload.day = id;
+        if (params.has("before")) payload.beforeDay = params.get("before");
+        if (params.has("after")) {
+          if (!isQuoteId(params.get("after"))) throw new ApiError(400, "A página de pedidos é inválida.");
+          payload.afterId = params.get("after");
+        }
+        if (action === "daily_quotes") {
+          const capturedAt = params.get("capturedAt");
+          if (!capturedAt || capturedAt.length > 40 || !/^\d{4}-\d{2}-\d{2}T[\d:.]+(?:Z|[+-]\d\d:\d\d)$/.test(capturedAt) || !validQuoteDate(capturedAt.slice(0, 10)) || !Number.isFinite(Date.parse(capturedAt))) throw new ApiError(400, "A versão do fechamento é inválida.");
+          payload.capturedAt = capturedAt;
+        }
+      }
+      const result = await execute(action, payload, auth);
+      if (result.status === "snapshot-conflict") throw new ApiError(409, "Este perfil recebeu novas alterações durante o download. Tente novamente para baixar a cópia atualizada.");
+      if (action === "activity_list") {
+        const events = result.events.slice(0, 20);
+        const last = events.at(-1);
+        return { value: { events, nextCursor: result.events.length > 20 && last ? `${last.changedAt}|${last.id}` : null } };
+      }
+      if (action === "daily_list") {
+        const days = result.days.slice(0, 20);
+        return { value: { days, nextBefore: result.days.length > 20 ? days.at(-1)?.day : null } };
+      }
+      return { value: result };
+    }
     const quoteRoute = /^(?:\/api\/admin\/users\/([1-9]\d*)|\/api)\/quote-requests(?:\/([^/]+)(?:\/(history))?)?$/.exec(route);
     if (quoteRoute) {
       const userId = quoteRoute[1] ? (requireAdmin(auth), accountId(quoteRoute[1])) : auth.user?.id;

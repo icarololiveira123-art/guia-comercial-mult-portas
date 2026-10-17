@@ -206,7 +206,7 @@ test("admin profile management exposes protected create, edit and delete routes"
   assert.doesNotMatch(itemRoute, /await request\.json\(\)/);
   assert.match(pageSource, /from ["']\.\/account-center["']/);
   assert.match(pageSource, /if \(isAdmin\) return <AccountCenter[^>]*request=\{apiFetch\}/);
-  assert.match(accountSource, /request\("\/api\/admin\/users", \{ cache: "no-store" \}\)/);
+  assert.match(accountSource, /request\("\/api\/admin\/users", \{ cache: "no-store", signal: controller\.signal \}\)/);
   assert.match(accountSource, /request\(`\/api\/admin\/users\/\$\{account\.id\}`[^)]*signal: controller\.signal/);
   assert.match(accountSource, /detailsRequestRef\.current\?\.id !== requestId/);
   assert.match(accountSource, /detailsError \? \(/);

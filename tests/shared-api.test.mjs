@@ -12,6 +12,7 @@ const ORIGIN = "https://icarololiveira123-art.github.io";
 const BASE = "https://example-project.supabase.co/functions/v1/mult-portas-api";
 const freshSecret = () => crypto.randomUUID();
 const clone = (value) => structuredClone(value);
+import { businessDay, keepLocalWorkspace } from "../app/lib/local-workspace-archive.mjs";
 
 // A shared persistent test store models separate computers, isolates and tokens.
 // A before-write hook lets tests revoke/rotate after the HTTP session check.
@@ -28,6 +29,8 @@ class MemoryStore {
   beforeExecute = null;
   workspaceAccesses = [];
   quotes = new Map();
+  activityResults = new Map();
+  activityCalls = [];
 
   constructor(clock) { this.clock = clock; }
   session(auth) {
@@ -54,7 +57,8 @@ class MemoryStore {
     if (this.beforeExecute) await this.beforeExecute(action, payload, auth);
     const workspaceActions = ["workspace_open", "workspace_read", "workspace_save"];
     const quoteActions = ["quote_list", "quote_get", "quote_history", "quote_create", "quote_update", "quote_action"];
-    const protectedActions = ["resolve_session", "get_state", "save_state", "update_user", "list_users", "get_user_detail", "admin_create_user", "admin_update_user", "delete_user", "import_local", ...workspaceActions, ...quoteActions];
+    const activityActions = ["activity_touch", "activity_list", "activity_get", "daily_list", "daily_get", "daily_quotes", "daily_accounts"];
+    const protectedActions = ["resolve_session", "get_state", "save_state", "update_user", "list_users", "get_user_detail", "admin_create_user", "admin_update_user", "delete_user", "import_local", ...workspaceActions, ...quoteActions, ...activityActions];
     let session;
     if (protectedActions.includes(action)) {
       session = this.session(auth);
@@ -72,6 +76,14 @@ class MemoryStore {
         if (!target || target.deleted) return { status: "not-found" };
       }
     }
+    if (activityActions.includes(action)) {
+      if (action === "activity_touch") {
+        if (session.role !== "user" || session.userId !== payload.userId) return { status: "forbidden" };
+        this.users.get(payload.userId).lastActiveAt = new Date(this.clock()).toISOString();
+      } else if (session.role !== "admin") return { status: "forbidden" };
+      this.activityCalls.push({ action, payload: clone(payload) });
+      return clone(this.activityResults.get(action) ?? { ok: true });
+    }
     if (quoteActions.includes(action)) return this.quoteExecute(action, payload);
     if (action === "get_access_proof") return { proof: this.proof };
     if (action === "rate_limit") {
@@ -82,11 +94,18 @@ class MemoryStore {
       return { allowed: current.count <= payload.max, retryAfter: Math.max(1, Math.ceil((current.start + payload.seconds * 1000 - this.clock()) / 1000)) };
     }
     if (action === "get_user_by_username") return { user: clone(this.userNamed(payload.usernameNormalized) ?? null) };
-    if (action === "resolve_session") return { session: clone(session), user: session.role === "user" ? clone(this.users.get(session.userId)) : null };
+    if (action === "resolve_session") {
+      if (session.role === "user") {
+        const user = this.users.get(session.userId);
+        if (!user.lastActiveAt || Date.parse(user.lastActiveAt) < this.clock() - 60_000) user.lastActiveAt = new Date(this.clock()).toISOString();
+      }
+      return { session: clone(session), user: session.role === "user" ? clone(this.users.get(session.userId)) : null };
+    }
     if (action === "create_session") {
       if (payload.role === "user") {
         const user = this.users.get(payload.userId);
         if (!user || user.deleted || user.sessionVersion !== payload.version) return { status: "version-conflict" };
+        user.lastLoginAt = user.lastActiveAt = new Date(this.clock()).toISOString();
       }
       this.sessions.set(payload.tokenHash, clone(payload));
       return { ok: true };
@@ -105,11 +124,13 @@ class MemoryStore {
     if (["save_state", "workspace_save"].includes(action)) {
       const old = this.states.get(payload.userId);
       const progress = payload.clientState === undefined ? old?.clientState ?? { schemaVersion: 1 } : mergeProgress(old?.clientState, payload.clientState);
+      if (old && JSON.stringify(old.state) === JSON.stringify(payload.state) && JSON.stringify(old.clientState) === JSON.stringify(progress)) return { ok: true, revision: old.revision };
       if ((old?.revision ?? null) !== payload.baseRevision) {
         if (old && JSON.stringify(old.state) === JSON.stringify(payload.state) && JSON.stringify(old.clientState) === JSON.stringify(progress)) return { ok: true, revision: old.revision };
         return { status: "state-conflict", revision: old?.revision ?? null };
       }
       this.states.set(payload.userId, { state: clone(payload.state), clientState: progress, revision: payload.revision, updatedAt: payload.updatedAt });
+      this.users.get(payload.userId).lastChangedAt = payload.updatedAt;
       return { ok: true, revision: payload.revision };
     }
     if (["update_user", "admin_update_user"].includes(action)) {
@@ -1188,4 +1209,78 @@ test('phone searches find only the selected user in active and archived lists wi
     }
     assert.equal((await f.call(`/api/quote-requests?scope=${scope}&search=11981234567`,{token:alice.token})).body.requests.length,0);
   }
+});
+
+test('employee presence advances independently of panel inspections and unchanged saves', async () => {
+  const f=fixture(); const employee=await f.register(); const panel=await f.privileged();
+  const login=f.store.users.get(employee.user.id).lastActiveAt;
+  const saved=await f.call('/api/data',{method:'PUT',token:employee.token,body:{state:{metrics:{quotes:2}},baseRevision:null}});
+  const current=(await f.call('/api/data',{token:employee.token})).body;
+  f.advance(120_000);
+  const detail=(await f.call(`/api/admin/users/${employee.user.id}`,{token:panel})).body.user;
+  assert.equal(detail.lastActiveAt,login); assert.ok(detail.lastChangedAt);
+  await f.call(`/api/admin/users/${employee.user.id}/access`,{method:'POST',token:panel});
+  const unchanged=await f.call(`/api/admin/users/${employee.user.id}/workspace`,{method:'PUT',token:panel,body:{state:current.state,baseRevision:saved.body.revision}});
+  assert.equal(unchanged.body.revision,saved.body.revision);
+  assert.equal(f.store.users.get(employee.user.id).lastActiveAt,login);
+  assert.equal((await f.call('/api/activity',{method:'POST',token:employee.token,body:{userId:999}})).status,200);
+  assert.notEqual(f.store.users.get(employee.user.id).lastActiveAt,login);
+  assert.equal(f.store.activityCalls.at(-1).payload.userId,employee.user.id);
+  assert.equal((await f.call('/api/activity',{method:'POST',token:panel})).status,403);
+});
+
+test('activity and daily backups require panel authorization, retain scope and use bounded cursor pages', async () => {
+  const f=fixture();const employee=await f.register();const panel=await f.privileged();
+  const base=`/api/admin/users/${employee.user.id}`;
+  const events=Array.from({length:21},(_,i)=>({id:crypto.randomUUID(),changedAt:`2026-10-17T15:01:00.${String(999999-i).padStart(6,'0')}+00:00`,title:'Atualização',changedFields:['marketingDaily'],kind:'workspace',actorRole:'user'}));
+  f.store.activityResults.set('activity_list',{events});
+  f.store.activityResults.set('activity_get',{event:{...events[0],beforeData:{marketingDaily:1},afterData:{marketingDaily:2}}});
+  f.store.activityResults.set('daily_list',{days:Array.from({length:21},(_,i)=>({day:`2026-09-${String(30-i).padStart(2,'0')}`,quoteCount:1,capturedAt:'2026-10-17T15:00:00Z'}))});
+  f.store.activityResults.set('daily_get',{snapshot:{day:'2026-10-17',profile:{id:employee.user.id},state:{metrics:{quotes:2}},capturedAt:'2026-10-17T15:00:00Z'}});
+  f.store.activityResults.set('daily_accounts',{day:'2026-10-17',accounts:[{userId:employee.user.id}]});
+  f.store.activityResults.set('daily_quotes',{quotes:[]});
+  for(const path of [`${base}/activity`,`${base}/activity/${events[0].id}`,`${base}/daily`,`${base}/daily/2026-10-17`,'/api/admin/daily?day=2026-10-17']) {
+    assert.equal((await f.call(path)).status,401,path);
+    assert.equal((await f.call(path,{token:employee.token})).status,403,path);
+    assert.equal((await f.call(path,{token:panel})).status,200,path);
+  }
+  const page=(await f.call(`${base}/activity`,{token:panel})).body;
+  assert.equal(page.events.length,20);assert.equal(page.nextCursor,events[19].changedAt+'|'+events[19].id);
+  await f.call(`${base}/activity?cursor=${encodeURIComponent(page.nextCursor)}`,{token:panel});
+  assert.deepEqual(f.store.activityCalls.at(-1),{action:'activity_list',payload:{userId:employee.user.id,cursorAt:events[19].changedAt,cursorId:events[19].id}});
+  const days=(await f.call(`${base}/daily`,{token:panel})).body;
+  assert.equal(days.days.length,20);assert.equal(days.nextBefore,'2026-09-11');
+  assert.equal((await f.call(`${base}/daily/2026-10-17/quotes?capturedAt=2026-10-17T15:00:00Z`,{token:panel})).status,200);
+  assert.equal(f.store.activityCalls.at(-1).payload.userId,employee.user.id);
+  f.store.activityResults.set('daily_quotes',{status:'snapshot-conflict'});
+  assert.equal((await f.call(`${base}/daily/2026-10-17/quotes?capturedAt=2026-10-17T15:00:00Z`,{token:panel})).status,409);
+  for(const path of [`${base}/activity/not-a-uuid`,`${base}/activity?cursor=bad`,`${base}/daily/2026-02-30`,`${base}/daily?before=tomorrow`,`${base}/daily/2026-10-17/quotes`,`${base}/daily/2026-10-17/quotes?capturedAt=bad`,'/api/admin/daily?day=2026-02-30']) assert.equal((await f.call(path,{token:panel})).status,400,path);
+});
+
+test('a revoked panel session cannot read a backup after the HTTP authentication check', async () => {
+  const f=fixture();const employee=await f.register();const panel=await f.privileged();
+  f.store.beforeExecute=(action)=>{if(action==='daily_get')for(const session of f.store.sessions.values())if(session.role==='admin')session.revoked=true;};
+  assert.equal((await f.call(`/api/admin/users/${employee.user.id}/daily/2026-10-17`,{token:panel})).status,401);
+});
+
+test('activity RPC calls stay server-only and never forward browser identity claims', async () => {
+  const calls=[];
+  const store=createRestStore({url:'https://example-project.supabase.co',serviceKey:'sb_secret_fixture',fetchImpl:async(url,init)=>{calls.push({url,body:JSON.parse(init.body)});return Response.json({ok:true});}});
+  await store.execute('daily_get',{userId:7,day:'2026-10-17'},{tokenHash:'session-digest',adminVersion:'version',role:'admin',userId:999});
+  assert.match(calls[0].url,/\/rpc\/mp_shared_activity$/);
+  assert.deepEqual(calls[0].body.p_auth,{tokenHash:'session-digest',adminVersion:'version'});
+});
+
+test('permanent local copies are scoped per profile and survive clearing a pending draft', async () => {
+  assert.equal(businessDay('2026-10-18T02:59:59Z'),'2026-10-17');
+  assert.equal(businessDay('2026-10-18T03:00:00Z'),'2026-10-18');
+  const memory=new Map();const storage={getItem:key=>memory.get(key)??null,setItem:(key,value)=>memory.set(key,value),removeItem:key=>memory.delete(key)};
+  const snapshot={state:{marketingDaily:{newContacts:7}},updatedAt:'2026-10-17T15:00:00Z'};
+  assert.equal(await keepLocalWorkspace(1,snapshot,{storage,database:null}),true);
+  assert.equal(await keepLocalWorkspace(2,{...snapshot,state:{marketingDaily:{newContacts:9}}},{storage,database:null}),true);
+  storage.setItem('mult-portas-shared-user-1-pending-state-v1','draft');storage.removeItem('mult-portas-shared-user-1-pending-state-v1');
+  assert.equal(JSON.parse(storage.getItem('mult-portas-shared-user-1-workspace-copy-v1')).state.marketingDaily.newContacts,7);
+  await keepLocalWorkspace(1,{state:{marketingDaily:{newContacts:1}},updatedAt:'2026-10-17T14:00:00Z'},{storage,database:null});
+  assert.equal(JSON.parse(storage.getItem('mult-portas-shared-user-1-workspace-copy-v1')).state.marketingDaily.newContacts,7);
+  assert.equal(JSON.parse(storage.getItem('mult-portas-shared-user-2-workspace-copy-v1')).state.marketingDaily.newContacts,9);
 });
