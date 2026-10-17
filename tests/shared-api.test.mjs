@@ -1016,3 +1016,86 @@ test("quote items save with no dimensions and synchronize optional height and wi
   const history = await f.call(path + "/history", { token: login.body.token }, elsewhere);
   assert.deepEqual(history.body.versions.map(v => [v.snapshot.items[0].height, v.snapshot.items[0].width, v.snapshot.items[0].measurements]), [["", "", ""], ["2,30 m", "230 cm", "Confirmar vão na obra"], ["", "", ""]]);
 });
+
+test("per-item prices synchronize exact totals and edits across computers, retaining old totals and every version", async () => {
+  const f = fixture();
+  const alice = await f.register();
+  const body = newQuote({ amountCents: 300000 });
+  const path = `/api/quote-requests/${body.id}`;
+  const legacy = (await f.call("/api/quote-requests", { method: "POST", token: alice.token, body })).body.request;
+  const elsewhere = createSharedApi(f.options);
+  const login = await f.call("/api/auth/login", { method: "POST", body: { username: "alice", password: alice.password } }, elsewhere);
+  const edit = { ...body, pricingMode: "items", legacyAmountCents: 300000, amountCents: 1, baseRevision: 1, mutationId: crypto.randomUUID(), items: [
+    { ...body.items[0], height: "2,30", width: "2,00", quantity: 2, unitAmountCents: 125050 },
+    { ...body.items[0], id: crypto.randomUUID(), description: "Janela", quantity: 3, unitAmountCents: 4099 },
+    { ...body.items[0], id: crypto.randomUUID(), description: "Grade", unitAmountCents: null },
+  ] };
+  const put = input => f.call(path, { method: "PUT", token: login.body.token, body: input }, elsewhere);
+  const changed = await put(edit);
+  assert.equal(changed.status, 200);
+  assert.equal(changed.body.request.amountCents, 262397);
+  assert.equal(changed.body.request.legacyAmountCents, 300000);
+  assert.deepEqual(changed.body.request.items.map(item => item.unitAmountCents), [125050, 4099, null]);
+  assert.equal(changed.body.request.items[0].height, "2,30 m");
+  assert.equal(changed.body.request.items[0].width, "2,00 m");
+  assert.equal(changed.body.request.createdAt, legacy.createdAt);
+  assert.deepEqual((await f.call(path, { token: alice.token })).body.request, changed.body.request);
+  assert.deepEqual((await f.call("/api/quote-requests", { token: alice.token })).body.requests[0], changed.body.request);
+  assert.equal((await put(edit)).body.request.revision, 2);
+  assert.equal((await put({ ...edit, items: [{ ...edit.items[0], unitAmountCents: 100 }] })).status, 409);
+  const editQuantities = { ...edit, baseRevision: 2, mutationId: crypto.randomUUID(), items: [
+    { ...edit.items[0], quantity: 3, unitAmountCents: 10001 },
+    { ...edit.items[1], quantity: 2, unitAmountCents: 0 }, edit.items[2],
+  ] };
+  const updated = await put(editQuantities);
+  assert.equal(updated.status, 200);
+  assert.equal(updated.body.request.amountCents, 30003);
+  const cleared = await put({ ...editQuantities, baseRevision: 3, mutationId: crypto.randomUUID(), items: editQuantities.items.map(item => ({ ...item, unitAmountCents: null })) });
+  assert.equal(cleared.status, 200);
+  assert.equal(cleared.body.request.amountCents, null);
+  assert.equal(cleared.body.request.legacyAmountCents, 300000);
+  const history = (await f.call(`${path}/history`, { token: alice.token })).body.versions;
+  assert.deepEqual(history.map(version => version.snapshot.amountCents), [null, 30003, 262397, 300000]);
+  assert.deepEqual(history.at(-1).snapshot, legacy);
+  assert.equal(history[1].snapshot.items[0].unitAmountCents, 10001);
+  assert.equal(history[2].snapshot.items[1].unitAmountCents, 4099);
+});
+
+test("older tabs cannot erase item prices, while status updates and isolated ownership still work", async () => {
+  const f = fixture();
+  const alice = await f.register();
+  const bob = await f.register("bob");
+  const body = newQuote({ pricingMode: "items" });
+  body.items[0].unitAmountCents = 10050;
+  const saved = (await f.call("/api/quote-requests", { method: "POST", token: alice.token, body })).body.request;
+  const path = `/api/quote-requests/${body.id}`;
+  const oldBody = { ...body, pricingMode: undefined, amountCents: saved.amountCents, baseRevision: saved.revision, mutationId: crypto.randomUUID(), items: body.items.map(item => { const oldItem = { ...item }; delete oldItem.unitAmountCents; return oldItem; }) };
+  const refused = await f.call(path, { method: "PUT", token: alice.token, body: oldBody });
+  assert.equal(refused.status, 409);
+  assert.equal(refused.body.request.items[0].unitAmountCents, 10050);
+  assert.match(refused.body.error, /valores separados por item/);
+  assert.equal(f.store.calls.filter(action => action === "quote_update").length, 0);
+  assert.equal((await f.call(path, { method: "PUT", token: bob.token, body: oldBody })).status, 404);
+  const sent = await f.call(path, { method: "PATCH", token: alice.token, body: { action: "sent", baseRevision: 1, mutationId: crypto.randomUUID() } });
+  assert.equal(sent.status, 200);
+  assert.equal(sent.body.request.sent, true);
+  assert.equal(sent.body.request.items[0].unitAmountCents, 10050);
+  assert.equal(sent.body.request.amountCents, 10050);
+  assert.equal((await f.call(`${path}/history`, { token: alice.token })).body.versions.length, 2);
+});
+
+test("invalid per-item prices and overflowing totals are refused before quote writes", async () => {
+  const f = fixture();
+  const alice = await f.register();
+  const body = newQuote({ pricingMode: "items" });
+  for (const unitAmountCents of [-1, 0.5, "100", false, 10_000_000_001]) {
+    const rejected = await f.call("/api/quote-requests", { method: "POST", token: alice.token,
+      body: { ...body, items: [{ ...body.items[0], unitAmountCents }] } });
+    assert.equal(rejected.status, 400);
+  }
+  const overflow = await f.call("/api/quote-requests", { method: "POST", token: alice.token,
+    body: { ...body, items: [{ ...body.items[0], quantity: 2, unitAmountCents: 10_000_000_000 }] } });
+  assert.equal(overflow.status, 400);
+  assert.equal(f.store.quotes.size, 0);
+  assert.equal(f.store.calls.filter(action => action === "quote_create").length, 0);
+});

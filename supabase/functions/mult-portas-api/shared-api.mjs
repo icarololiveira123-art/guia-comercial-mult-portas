@@ -365,6 +365,11 @@ export function createSharedApi({ store, accessPassword = "", allowedOrigins = [
           try { payload.data = validateQuoteFields(body); } catch (error) { throw new ApiError(400, error.message); }
           checkSize(payload.data, 160_000);
           action = method === "POST" ? "quote_create" : "quote_update";
+          // An older open tab cannot silently replace item prices with its former global total.
+          if (method === "PUT" && payload.data.pricingMode !== "items") {
+            const current = await execute("quote_get", { userId: payload.userId, id: payload.id }, auth);
+            if (current.request?.pricingMode === "items") throw new ApiError(409, "Este pedido tem valores separados por item. Atualize a página e abra a versão salva para continuar.", { request: current.request });
+          }
         }
       } else throw new ApiError(405, "Método não permitido para pedidos de orçamento.");
       checkSignal(request);

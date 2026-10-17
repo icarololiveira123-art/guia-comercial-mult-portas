@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildQuoteRequestSummary, formatQuoteDate, isQuoteId, QUOTE_ITEM_LIMIT,
-  QUOTE_PAGE_SIZE, normalizeQuoteDimension, quoteToday, validQuoteDate, validateQuoteFields,
+  QUOTE_PAGE_SIZE, calculateQuotePricing, normalizeQuoteDimension, quoteToday, validQuoteDate, validateQuoteFields,
 } from "../app/lib/quote-requests.mjs";
 
 function fields(overrides = {}) {
@@ -36,6 +36,74 @@ test("quote totals accept optional values, zero and exact bounded integer cents 
   for (const amountCents of [-1, 0.5, 10_000_000_001, Number.MAX_SAFE_INTEGER + 1, NaN, Infinity, "125050", "1.250,50", false, {}, []]) {
     assert.throws(() => validateQuoteFields(fields({ amountCents })), undefined, String(amountCents));
   }
+});
+
+test("each item has an optional unit price and exact quantity subtotal, with a server-derived partial total", () => {
+  const base = fields();
+  const input = fields({ pricingMode: "items", amountCents: 999999, items: [
+    { ...base.items[0], quantity: 3, unitAmountCents: 4099, subtotalCents: 1 },
+    { ...base.items[0], id: crypto.randomUUID(), quantity: 2, unitAmountCents: 125050 },
+    { ...base.items[0], id: crypto.randomUUID(), quantity: 4, unitAmountCents: 0 },
+    { ...base.items[0], id: crypto.randomUUID() },
+  ] });
+  const before = structuredClone(input);
+  const result = validateQuoteFields(input);
+  assert.equal(result.pricingMode, "items");
+  assert.equal(result.amountCents, 262397);
+  assert.deepEqual(result.items.map(item => item.unitAmountCents), [4099, 125050, 0, null]);
+  assert.equal(Object.hasOwn(result.items[0], "subtotalCents"), false);
+  assert.deepEqual(calculateQuotePricing(result.items), { amountCents: 262397, pricedItems: 3, unpricedItems: 1 });
+  assert.deepEqual(input, before);
+  assert.equal(validateQuoteFields({ ...input, items: [{ ...input.items[0], quantity: 1, unitAmountCents: 1 }] }).amountCents, 1);
+  assert.equal(validateQuoteFields({ ...input, pricingMode: undefined }).amountCents, 262397);
+});
+
+test("item prices reject coercion, unsafe amounts, oversized subtotals and aggregate overflow", () => {
+  const base = fields();
+  const item = base.items[0];
+  for (const price of [-1, 0.1, "100", false, {}, [], NaN, Infinity, 10_000_000_001]) {
+    assert.throws(() => validateQuoteFields({ ...base, items: [{ ...item, unitAmountCents: price }] }), /Valor do item 1/);
+  }
+  assert.throws(() => validateQuoteFields({ ...base, items: [{ ...item, quantity: 2, unitAmountCents: 10_000_000_000 }] }), /soma dos itens/);
+  assert.throws(() => validateQuoteFields({ ...base, items: [
+    { ...item, unitAmountCents: 10_000_000_000 }, { ...item, id: crypto.randomUUID(), unitAmountCents: 1 },
+  ] }), /soma dos itens/);
+  assert.equal(validateQuoteFields({ ...base, items: [{ ...item, unitAmountCents: 10_000_000_000 }] }).amountCents, 10_000_000_000);
+  assert.throws(() => validateQuoteFields({ ...base, pricingMode: "other" }));
+});
+
+test("clearing all item prices leaves an unpriced total while legacy totals remain a separate reference", () => {
+  const base = fields({ amountCents: 123456 });
+  const legacy = validateQuoteFields(base);
+  assert.equal(legacy.amountCents, 123456);
+  assert.equal(Object.hasOwn(legacy, "pricingMode"), false);
+  assert.equal(Object.hasOwn(legacy.items[0], "unitAmountCents"), false);
+  const converted = validateQuoteFields({ ...legacy, pricingMode: "items", legacyAmountCents: legacy.amountCents });
+  assert.equal(converted.amountCents, null);
+  assert.equal(converted.legacyAmountCents, 123456);
+  assert.deepEqual(calculateQuotePricing(converted.items), { amountCents: null, pricedItems: 0, unpricedItems: 1 });
+  const free = validateQuoteFields({ ...converted, items: [{ ...converted.items[0], quantity: 4, unitAmountCents: 0 }] });
+  assert.equal(free.amountCents, 0);
+  const cleared = validateQuoteFields({ ...free, items: [{ ...free.items[0], unitAmountCents: null }] });
+  assert.equal(cleared.amountCents, null);
+  assert.equal(cleared.legacyAmountCents, 123456);
+  assert.throws(() => validateQuoteFields({ ...converted, legacyAmountCents: -1 }));
+});
+
+test("copied quotes identify each item's unit price, quantity subtotal, missing prices and legacy references", () => {
+  const base = fields();
+  const priced = validateQuoteFields({ ...base, pricingMode: "items", legacyAmountCents: 300000, items: [
+    { ...base.items[0], quantity: 2, unitAmountCents: 125050 },
+    { ...base.items[0], id: crypto.randomUUID(), unitAmountCents: null },
+  ] });
+  const partial = buildQuoteRequestSummary(priced);
+  assert.match(partial, /Valor unitário: R\$ 1\.250,50 \| Subtotal: R\$ 2\.501,00/);
+  assert.match(partial, /Valor a informar/);
+  assert.match(partial, /Subtotal dos itens preenchidos \(parcial\): R\$ 2\.501,00/);
+  assert.match(partial, /Total anterior, sem divisão por item \(referência\): R\$ 3\.000,00/);
+  const complete = validateQuoteFields({ ...priced, items: [{ ...priced.items[0], unitAmountCents: 0 }] });
+  assert.match(buildQuoteRequestSummary(complete), /Valor total: R\$ 0,00/);
+  assert.doesNotMatch(buildQuoteRequestSummary(complete), /parcial/);
 });
 
 test("quote validation rejects impossible dates, repeated IDs, missing clients and malformed quantities or text", () => {

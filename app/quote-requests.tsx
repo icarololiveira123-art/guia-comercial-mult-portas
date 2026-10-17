@@ -3,25 +3,26 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { WorkspaceIcon } from "./workspace-icon";
 import {
-  QUOTE_ITEM_LIMIT, buildQuoteRequestSummary, formatQuoteDate, isQuoteId, normalizeQuoteDimension, quoteToday, validateQuoteFields,
+  QUOTE_ITEM_LIMIT, buildQuoteRequestSummary, calculateQuotePricing, formatQuoteDate, isQuoteId, normalizeQuoteDimension, quoteToday, validateQuoteFields,
   type QuoteRequestFields, type QuoteRequestItem, type QuoteRequestRecord, type QuoteRequestVersion,
 } from "./lib/quote-requests.mjs";
 import { formatQuoteAmount, parseQuoteAmount, QUOTE_AMOUNT_ERROR, quoteAmountInput } from "./lib/quote-amount.mjs";
 
 type Props = { userId: number; request: (path: string, init?: RequestInit) => Promise<Response>; active: boolean };
-type Draft = { id: string; baseRevision: number | null; fields: QuoteRequestFields; amountText: string; mutationId: string; dirty: boolean; createdAt: string | null };
+type Draft = { id: string; baseRevision: number | null; fields: QuoteRequestFields; amountText: string; itemAmountTexts: Record<string, string>; mutationId: string; dirty: boolean; createdAt: string | null };
 type Counts = { total: number; pending: number; sent: number; archived: number };
 type ListReply = { requests: QuoteRequestRecord[]; counts: Counts; nextCursor: string | null };
 type HistoryReply = { request: QuoteRequestRecord; versions: QuoteRequestVersion[]; nextBefore: number | null };
 type Conflict = { request: QuoteRequestRecord | null };
 const actions: Record<string, string> = { created: "Pedido criado", updated: "Dados atualizados", sent: "Marcado como enviado", unsent: "Marcado como não enviado", archived: "Pedido arquivado", restored: "Pedido restaurado" };
 const uid = () => crypto.randomUUID();
-const newItem = (): QuoteRequestItem => ({ id: uid(), description: "", height: "", width: "", measurements: "", quantity: 1, details: "" });
+const newItem = (): QuoteRequestItem => ({ id: uid(), description: "", height: "", width: "", measurements: "", quantity: 1, details: "", unitAmountCents: null });
 function emptyDraft(): Draft {
-  return { id: uid(), baseRevision: null, fields: { clientName: "", contact: "", requestedOn: quoteToday(), notes: "", sent: false, amountCents: null, items: [newItem()] }, amountText: "", mutationId: uid(), dirty: false, createdAt: null };
+  return { id: uid(), baseRevision: null, fields: { clientName: "", contact: "", requestedOn: quoteToday(), notes: "", sent: false, pricingMode: "items", legacyAmountCents: null, amountCents: null, items: [newItem()] }, amountText: "", itemAmountTexts: {}, mutationId: uid(), dirty: false, createdAt: null };
 }
 function editDraft(record: QuoteRequestRecord): Draft {
-  return { id: record.id, baseRevision: record.revision, fields: { clientName: record.clientName, contact: record.contact, requestedOn: record.requestedOn, notes: record.notes, sent: record.sent, amountCents: record.amountCents ?? null, items: record.items.map(item => ({ ...item, height: normalizeQuoteDimension(item.height ?? ""), width: normalizeQuoteDimension(item.width ?? "") })) }, amountText: quoteAmountInput(record.amountCents), mutationId: uid(), dirty: false, createdAt: record.createdAt };
+  const legacyAmountCents = (record.pricingMode === "items" ? record.legacyAmountCents : record.amountCents) ?? null;
+  return { id: record.id, baseRevision: record.revision, fields: { clientName: record.clientName, contact: record.contact, requestedOn: record.requestedOn, notes: record.notes, sent: record.sent, pricingMode: "items", legacyAmountCents, amountCents: record.amountCents ?? null, items: record.items.map(item => ({ ...item, height: normalizeQuoteDimension(item.height ?? ""), width: normalizeQuoteDimension(item.width ?? ""), unitAmountCents: item.unitAmountCents ?? null })) }, amountText: quoteAmountInput(legacyAmountCents), itemAmountTexts: Object.fromEntries(record.items.map(item => [item.id, quoteAmountInput(item.unitAmountCents)])), mutationId: uid(), dirty: false, createdAt: record.createdAt };
 }
 function readDraft(key: string): Draft {
   const fresh = emptyDraft();
@@ -33,7 +34,9 @@ function readDraft(key: string): Draft {
     // An unfinished form can have blank fields; validate its shape without requiring completion.
     if ([value.fields.clientName, value.fields.contact, value.fields.requestedOn, value.fields.notes].some(item => typeof item !== "string") || typeof value.fields.sent !== "boolean") return fresh;
     if (value.fields.items.some(item => !item || !isQuoteId(item.id) || typeof item.description !== "string" || (item.height !== undefined && typeof item.height !== "string") || (item.width !== undefined && typeof item.width !== "string") || typeof item.measurements !== "string" || typeof item.details !== "string" || (item.quantity !== null && !Number.isFinite(item.quantity)))) return fresh;
-    return { ...value, fields: { ...value.fields, amountCents: value.fields.amountCents ?? null, items: value.fields.items.map(item => ({ ...item, height: normalizeQuoteDimension(item.height ?? ""), width: normalizeQuoteDimension(item.width ?? ""), quantity: item.quantity === null ? NaN : item.quantity })) } };
+    if (value.itemAmountTexts !== undefined && (!value.itemAmountTexts || typeof value.itemAmountTexts !== "object" || Array.isArray(value.itemAmountTexts) || Object.values(value.itemAmountTexts).some(text => typeof text !== "string" || text.length > 40))) return fresh;
+    // Keep the former global amount as a reference; never guess how to divide it among products.
+    return { ...value, itemAmountTexts: value.itemAmountTexts ?? Object.fromEntries(value.fields.items.map(item => [item.id, quoteAmountInput(item.unitAmountCents)])), fields: { ...value.fields, pricingMode: "items", amountCents: value.fields.amountCents ?? null, items: value.fields.items.map(item => ({ ...item, height: normalizeQuoteDimension(item.height ?? ""), width: normalizeQuoteDimension(item.width ?? ""), unitAmountCents: item.unitAmountCents ?? null, quantity: item.quantity === null ? NaN : item.quantity })) } };
   } catch { return fresh; }
 }
 class QuoteError extends Error {
@@ -43,6 +46,19 @@ class QuoteError extends Error {
 }
 function isAbort(error: unknown) { return error instanceof Error && error.name === "AbortError"; }
 function messageOf(error: unknown) { return error instanceof Error ? error.message : "Não foi possível concluir. Tente novamente."; }
+function draftPricing(draft: Draft) {
+  try {
+    const items = draft.fields.items.map((item, index) => {
+      const price = parseQuoteAmount(draft.itemAmountTexts[item.id] ?? "");
+      if (!price.valid) throw new Error(`Valor do item ${index + 1}: ${QUOTE_AMOUNT_ERROR}`);
+      return { ...item, unitAmountCents: price.amountCents };
+    });
+    return { ...calculateQuotePricing(items), items, error: "" };
+  } catch (error) { return { amountCents: null, pricedItems: 0, unpricedItems: draft.fields.items.length, items: draft.fields.items, error: messageOf(error) }; }
+}
+function recordAmount(record: QuoteRequestRecord) {
+  return `${formatQuoteAmount(record.amountCents)}${record.pricingMode === "items" && record.amountCents != null && record.items.some(item => item.unitAmountCents == null) ? " · parcial" : ""}`;
+}
 
 export function QuoteRequests({ userId, request, active }: Props) {
   const storageKey = `mult-portas-quote-draft-v2:${userId}`;
@@ -143,11 +159,15 @@ export function QuoteRequests({ userId, request, active }: Props) {
   }, [active, loadList, refresh]);
 
   function change(fields: Partial<QuoteRequestFields>) {
-    setDraft(current => ({ ...current, fields: { ...current.fields, ...fields }, mutationId: uid(), dirty: true }));
+    setDraft(current => ({ ...current, fields: { ...current.fields, ...fields }, itemAmountTexts: fields.items ? Object.fromEntries(fields.items.map(item => [item.id, current.itemAmountTexts[item.id] ?? ""])) : current.itemAmountTexts, mutationId: uid(), dirty: true }));
     setFormError(""); setFeedback("");
   }
   function changeItem(id: string, fields: Partial<QuoteRequestItem>) {
     setDraft(current => ({ ...current, fields: { ...current.fields, items: current.fields.items.map(item => item.id === id ? { ...item, ...fields } : item) }, mutationId: uid(), dirty: true }));
+    setFormError(""); setFeedback("");
+  }
+  function changeItemAmount(id: string, text: string) {
+    setDraft(current => ({ ...current, itemAmountTexts: { ...current.itemAmountTexts, [id]: text }, mutationId: uid(), dirty: true }));
     setFormError(""); setFeedback("");
   }
   function openEditor(record: QuoteRequestRecord | "new", discard = false) {
@@ -167,9 +187,11 @@ export function QuoteRequests({ userId, request, active }: Props) {
     if (busyRef.current || conflict) return;
     setFormError(""); setFeedback("");
     const amount = parseQuoteAmount(draft.amountText);
-    if (!amount.valid) { setFormError(QUOTE_AMOUNT_ERROR); return; }
+    if (!amount.valid) { setFormError("O valor do rascunho anterior está inválido. Remova a referência anterior e informe os valores em cada item."); return; }
+    const pricing = draftPricing(draft);
+    if (pricing.error) { setFormError(pricing.error); return; }
     let fields: QuoteRequestFields;
-    try { fields = validateQuoteFields({ ...draft.fields, amountCents: amount.amountCents }); }
+    try { fields = validateQuoteFields({ ...draft.fields, pricingMode: "items", legacyAmountCents: amount.amountCents, items: pricing.items }); }
     catch (error) { setFormError(messageOf(error)); return; }
     busyRef.current = true; setSaving(true);
     try {
@@ -216,6 +238,7 @@ export function QuoteRequests({ userId, request, active }: Props) {
     catch { if (mounted.current) { setManualCopy(summary); window.requestAnimationFrame(() => { summaryRef.current?.focus(); summaryRef.current?.select(); }); } }
   }
   const disabled = saving || actionBusy !== null;
+  const pricing = draftPricing(draft);
   if (!active) return null;
   return <div className="page-content quote-page">
     <header className="quote-heading"><div><span className="section-kicker">OPERAÇÃO / DO PEDIDO AO ENVIO</span><h1>Pedidos de orçamento</h1><p>Cliente, medidas, valores e cada etapa do atendimento, no mesmo lugar.</p></div><button className="button dark" type="button" onClick={() => openEditor("new")} disabled={disabled}>Novo pedido <span aria-hidden="true">+</span></button></header>
@@ -233,7 +256,7 @@ export function QuoteRequests({ userId, request, active }: Props) {
           {rows.map(record => <article className={`quote-record${draft.id === record.id ? " is-selected" : ""}`} key={record.id}>
             <div className="quote-record-top"><div><h3>{record.clientName}</h3><p>{record.items.length} {record.items.length === 1 ? "item" : "itens"} · Solicitado em {formatQuoteDate(record.requestedOn)}</p></div><span className={`quote-badge${record.sent ? " sent" : ""}`}>{record.sent ? "Enviado" : "Não enviado"}</span></div>
             <p className="quote-record-preview">{record.items.map(item => [item.description, item.height ? `Altura: ${normalizeQuoteDimension(item.height)}` : "", item.width ? `Largura: ${normalizeQuoteDimension(item.width)}` : "", item.measurements].filter(Boolean).join(" · ")).join(" / ")}</p>
-            <div className="quote-record-meta"><span>Criado {formatQuoteDate(record.createdAt, true)}</span><strong>{formatQuoteAmount(record.amountCents)}</strong>{record.archivedAt && <span className="quote-archive-label">Arquivado</span>}</div>
+            <div className="quote-record-meta"><span>Criado {formatQuoteDate(record.createdAt, true)}</span><strong>{recordAmount(record)}</strong>{record.archivedAt && <span className="quote-archive-label">Arquivado</span>}</div>
             <div className="quote-record-actions"><button type="button" onClick={() => openEditor(record)} disabled={disabled}>Editar pedido</button><button type="button" onClick={() => { void loadHistory(record); }} disabled={historyLoading}>Ver alterações</button><button type="button" onClick={() => { void copy(record); }}>Copiar resumo</button><button type="button" onClick={() => { void changeStatus(record, record.sent ? "unsent" : "sent"); }} disabled={disabled}>{record.sent ? "Marcar não enviado" : "Marcar enviado"}</button><button type="button" onClick={() => { void changeStatus(record, record.archivedAt ? "restored" : "archived"); }} disabled={disabled}>{actionBusy === record.id ? "Salvando…" : record.archivedAt ? "Restaurar pedido" : "Arquivar"}</button></div>
           </article>)}
           {!rows.length && !loading && !listError && <div className="quote-empty"><WorkspaceIcon name="work" /><strong>{searchReady || filter !== "all" ? "Nenhum pedido com esses filtros." : "Seu próximo atendimento começa aqui."}</strong><p>{searchReady || filter !== "all" ? "Tente outro nome ou altere os filtros." : "Preencha o cliente e os itens ao lado para criar o primeiro pedido."}</p></div>}
@@ -246,16 +269,24 @@ export function QuoteRequests({ userId, request, active }: Props) {
       <section className="quote-editor" aria-labelledby="quote-editor-title">
         <div className="quote-editor-head"><span className="section-kicker">{draft.baseRevision === null ? "UM NOVO ATENDIMENTO" : `EDITANDO · REVISÃO ${draft.baseRevision}`}</span><h2 id="quote-editor-title" tabIndex={-1} ref={formHeading}>{draft.baseRevision === null ? "Anote o pedido." : "Atualize o pedido."}</h2><p>{draft.createdAt ? `Criado em ${formatQuoteDate(draft.createdAt, true)}. A data de criação é preservada.` : "A data e a hora da criação serão registradas no primeiro salvamento."}</p></div>
         {pendingOpen && <div className="quote-warning" role="alert"><strong>Há alterações ainda não salvas.</strong><p>Salve este pedido ou descarte as alterações para abrir outro.</p><div className="quote-inline-actions"><button className="button dark" type="button" onClick={() => setPendingOpen(null)}>Continuar editando</button><button className="button" type="button" onClick={() => openEditor(pendingOpen, true)}>Descartar e {pendingOpen === "new" ? "criar novo" : "abrir outro"}</button></div></div>}
-        {conflict && <div className="quote-warning" role="alert"><strong>Este pedido mudou em outra sessão.</strong><p>Suas alterações foram mantidas neste formulário. Confira a versão salva antes de escolher como continuar.</p>{conflict.request && <><p>Versão salva: <strong>{conflict.request.clientName}</strong> · revisão {conflict.request.revision} · {formatQuoteAmount(conflict.request.amountCents)} · {formatQuoteDate(conflict.request.updatedAt, true)}.</p><details><summary>Conferir dados da versão salva</summary><QuoteSnapshot record={conflict.request} /></details><div className="quote-inline-actions"><button type="button" className="button" onClick={() => { setDraft(editDraft(conflict.request!)); setConflict(null); }}>Usar a versão salva</button><button type="button" className="button dark" onClick={() => { const saved = conflict.request!; setDraft(current => ({ ...current, id: saved.id, baseRevision: saved.revision, createdAt: saved.createdAt, mutationId: uid(), dirty: true })); setConflict(null); setFormError(""); }}>Manter minhas alterações para revisar e salvar</button></div></>}{!conflict.request && <button type="button" className="button" onClick={() => { setDraft(current => ({ ...current, id: uid(), baseRevision: null, createdAt: null, mutationId: uid(), dirty: true })); setConflict(null); }}>Continuar como novo pedido</button>}</div>}
+        {conflict && <div className="quote-warning" role="alert"><strong>Este pedido mudou em outra sessão.</strong><p>Suas alterações foram mantidas neste formulário. Confira a versão salva antes de escolher como continuar.</p>{conflict.request && <><p>Versão salva: <strong>{conflict.request.clientName}</strong> · revisão {conflict.request.revision} · {recordAmount(conflict.request)} · {formatQuoteDate(conflict.request.updatedAt, true)}.</p><details><summary>Conferir dados da versão salva</summary><QuoteSnapshot record={conflict.request} /></details><div className="quote-inline-actions"><button type="button" className="button" onClick={() => { setDraft(editDraft(conflict.request!)); setConflict(null); }}>Usar a versão salva</button><button type="button" className="button dark" onClick={() => { const saved = conflict.request!; setDraft(current => ({ ...current, id: saved.id, baseRevision: saved.revision, createdAt: saved.createdAt, mutationId: uid(), dirty: true })); setConflict(null); setFormError(""); }}>Manter minhas alterações para revisar e salvar</button></div></>}{!conflict.request && <button type="button" className="button" onClick={() => { setDraft(current => ({ ...current, id: uid(), baseRevision: null, createdAt: null, mutationId: uid(), dirty: true })); setConflict(null); }}>Continuar como novo pedido</button>}</div>}
         <form onSubmit={event => { void save(event); }}>
           <fieldset disabled={disabled}>
             <legend className="quote-sr-only">Dados do pedido de orçamento</legend>
             <div className="quote-field-grid"><label className="quote-field-full">Nome do cliente <span aria-hidden="true">*</span><input name="clientName" autoComplete="off" maxLength={120} required value={draft.fields.clientName} placeholder="Quem solicitou o orçamento?" onChange={event => change({ clientName: event.target.value })} /></label><label>Contato <small>opcional</small><input name="contact" autoComplete="off" maxLength={120} value={draft.fields.contact} placeholder="Telefone, WhatsApp ou e-mail" onChange={event => change({ contact: event.target.value })} /></label><label>Data da solicitação <span aria-hidden="true">*</span><input type="date" name="requestedOn" required value={draft.fields.requestedOn} onChange={event => change({ requestedOn: event.target.value })} /></label></div>
-            <div className="quote-items-head"><div><span className="section-kicker">O QUE O CLIENTE PRECISA</span><h3>Itens e medidas</h3></div><span>{draft.fields.items.length}/{QUOTE_ITEM_LIMIT}</span></div>
+            <div className="quote-items-head"><div><span className="section-kicker">O QUE O CLIENTE PRECISA</span><h3>Itens, medidas e valores</h3></div><span>{draft.fields.items.length}/{QUOTE_ITEM_LIMIT}</span></div>
             <p className="quote-field-help">Digite apenas o número na altura e na largura: o m será acrescentado automaticamente. Os três campos de medidas continuam opcionais.</p>
-            <div className="quote-form-items">{draft.fields.items.map((item, index) => <div className="quote-form-item" key={item.id}><div className="quote-item-head"><strong>Item {String(index + 1).padStart(2, "0")}</strong><button type="button" aria-label={`Remover item ${index + 1}`} disabled={draft.fields.items.length === 1} onClick={() => change({ items: draft.fields.items.filter(saved => saved.id !== item.id) })}>Remover</button></div><label>Produto / descrição <span aria-hidden="true">*</span><textarea rows={2} maxLength={500} required value={item.description} placeholder="Ex.: Porta integrada de 2 folhas" onChange={event => changeItem(item.id, { description: event.target.value })} /></label><div className="quote-item-dimensions"><label>Altura (m) <small>opcional</small><input name="height" maxLength={80} value={item.height ?? ""} placeholder="Ex.: 2,30" onChange={event => changeItem(item.id, { height: event.target.value })} onBlur={event => { const value = normalizeQuoteDimension(event.target.value); if (value !== event.target.value) changeItem(item.id, { height: value }); }} /></label><label>Largura (m) <small>opcional</small><input name="width" maxLength={80} value={item.width ?? ""} placeholder="Ex.: 2,00" onChange={event => changeItem(item.id, { width: event.target.value })} onBlur={event => { const value = normalizeQuoteDimension(event.target.value); if (value !== event.target.value) changeItem(item.id, { width: value }); }} /></label></div><div className="quote-item-measures"><label>Medidas <small>opcional</small><input name="measurements" maxLength={240} value={item.measurements} placeholder="Ex.: 2,30 A × 2,00 L" onChange={event => changeItem(item.id, { measurements: event.target.value })} /></label><label>Quantidade<input type="number" inputMode="numeric" min={1} max={10000} step={1} required value={Number.isNaN(item.quantity) ? "" : item.quantity} onChange={event => changeItem(item.id, { quantity: event.target.value === "" ? NaN : Number(event.target.value) })} /></label></div><label>Cor, vidro e outros detalhes<textarea rows={2} maxLength={800} value={item.details} placeholder="Ex.: Preto | Vidro temperado | Lado de abertura" onChange={event => changeItem(item.id, { details: event.target.value })} /></label></div>)}</div>
+            <div className="quote-form-items">{draft.fields.items.map((item, index) => <div className="quote-form-item" key={item.id}><div className="quote-item-head"><strong>Item {String(index + 1).padStart(2, "0")}</strong><button type="button" aria-label={`Remover item ${index + 1}`} disabled={draft.fields.items.length === 1} onClick={() => change({ items: draft.fields.items.filter(saved => saved.id !== item.id) })}>Remover</button></div><label>Produto / descrição <span aria-hidden="true">*</span><textarea rows={2} maxLength={500} required value={item.description} placeholder="Ex.: Porta integrada de 2 folhas" onChange={event => changeItem(item.id, { description: event.target.value })} /></label><div className="quote-item-dimensions"><label>Altura (m) <small>opcional</small><input name="height" maxLength={80} value={item.height ?? ""} placeholder="Ex.: 2,30" onChange={event => changeItem(item.id, { height: event.target.value })} onBlur={event => { const value = normalizeQuoteDimension(event.target.value); if (value !== event.target.value) changeItem(item.id, { height: value }); }} /></label><label>Largura (m) <small>opcional</small><input name="width" maxLength={80} value={item.width ?? ""} placeholder="Ex.: 2,00" onChange={event => changeItem(item.id, { width: event.target.value })} onBlur={event => { const value = normalizeQuoteDimension(event.target.value); if (value !== event.target.value) changeItem(item.id, { width: value }); }} /></label></div><div className="quote-item-measures"><label>Medidas <small>opcional</small><input name="measurements" maxLength={240} value={item.measurements} placeholder="Ex.: 2,30 A × 2,00 L" onChange={event => changeItem(item.id, { measurements: event.target.value })} /></label><label>Quantidade<input id={`quote-quantity-${item.id}`} type="number" inputMode="numeric" min={1} max={10000} step={1} required value={Number.isNaN(item.quantity) ? "" : item.quantity} onChange={event => changeItem(item.id, { quantity: event.target.value === "" ? NaN : Number(event.target.value) })} /></label></div><label>Cor, vidro e outros detalhes<textarea rows={2} maxLength={800} value={item.details} placeholder="Ex.: Preto | Vidro temperado | Lado de abertura" onChange={event => changeItem(item.id, { details: event.target.value })} /></label>
+              <QuoteItemPrice item={item} index={index} value={draft.itemAmountTexts[item.id] ?? ""} onChange={value => changeItemAmount(item.id, value)} />
+            </div>)}</div>
             <button className="button quote-add-item" type="button" disabled={draft.fields.items.length >= QUOTE_ITEM_LIMIT} onClick={() => change({ items: [...draft.fields.items, newItem()] })}>+ Adicionar outro item</button>
-            <div className="quote-value-box"><label htmlFor="quote-amount">Valor total do orçamento <small>opcional</small></label><div className="quote-currency-input"><span aria-hidden="true">R$</span><input id="quote-amount" name="amount" type="text" inputMode="decimal" maxLength={40} placeholder="Ex.: 1.250,50" value={draft.amountText} onChange={event => { setDraft(current => ({ ...current, amountText: event.target.value, mutationId: uid(), dirty: true })); setFormError(""); }} /></div><p>Preencha quando tiver o valor. Deixe em branco se ainda estiver aguardando. Você pode atualizar depois.</p></div>
+            <div className="quote-value-box quote-total-box">
+              <span id="quote-total-label">{pricing.unpricedItems && pricing.pricedItems ? "Subtotal dos itens preenchidos" : "Total dos itens"}</span>
+              <output aria-labelledby="quote-total-label" aria-live="polite">{pricing.error ? "Confira os valores" : formatQuoteAmount(pricing.amountCents)}</output>
+              <p>{pricing.error || (pricing.unpricedItems ? `${pricing.unpricedItems} ${pricing.unpricedItems === 1 ? "item ainda sem valor" : "itens ainda sem valor"}. ${pricing.pricedItems ? "Este subtotal é parcial." : "Os valores são opcionais e podem ser preenchidos depois."}` : "Calculado automaticamente: quantidade × valor unitário de cada item.")}</p>
+            </div>
+            {draft.amountText.trim() && <div className="quote-legacy-value"><strong>Total anterior, sem divisão por item</strong><p>{parseQuoteAmount(draft.amountText).valid ? formatQuoteAmount(parseQuoteAmount(draft.amountText).amountCents) : draft.amountText}</p><p>Preservado como referência. Esse valor não entra na soma dos itens.</p><button type="button" onClick={() => { setDraft(current => ({ ...current, amountText: "", mutationId: uid(), dirty: true })); setFormError(""); }}>Remover referência anterior</button></div>}
+
             <label className="quote-notes">Observações <small>opcional</small><textarea maxLength={8000} rows={3} value={draft.fields.notes} placeholder="Informações da obra, preferências e próximos passos…" onChange={event => change({ notes: event.target.value })} /></label>
             <label className="quote-sent-check"><input type="checkbox" checked={draft.fields.sent} onChange={event => change({ sent: event.target.checked })} /><span><strong>Já enviei este orçamento ao cliente</strong><small>Marque somente depois do envio. Essa opção registra o status.</small></span></label>
           </fieldset>
@@ -266,10 +297,27 @@ export function QuoteRequests({ userId, request, active }: Props) {
         </form>
       </section>
     </div>
-    {history && <section className="quote-history" aria-labelledby="quote-history-title"><div className="quote-history-heading"><div><span className="section-kicker">CADA ALTERAÇÃO FICA REGISTRADA</span><h2 id="quote-history-title" tabIndex={-1} ref={historyHeading}>Histórico de {history.request.clientName}</h2><p>Criado em {formatQuoteDate(history.request.createdAt, true)} · {history.request.revision} {history.request.revision === 1 ? "versão" : "versões"} registradas</p></div><button className="button" type="button" onClick={() => { ++historyGeneration.current; setHistory(null); setHistoryLoading(false); }}>Fechar histórico</button></div>{historyError && <div className="quote-error" role="alert"><p>{historyError}</p><button type="button" className="button" onClick={() => { void loadHistory(history.request); }}>Tentar novamente</button></div>}<div className="quote-versions">{history.versions.map(version => <details key={version.revision}><summary><span className="quote-version-index">{String(version.revision).padStart(2, "0")}</span><span><strong>{actions[version.action] ?? "Pedido atualizado"}</strong><small>{formatQuoteDate(version.changedAt, true)}</small></span><span className="quote-version-amount">{formatQuoteAmount(version.snapshot.amountCents)}</span><span aria-hidden="true">+</span></summary><QuoteSnapshot record={version.snapshot} /></details>)}</div>{historyLoading && <p className="quote-loading" role="status">Carregando alterações…</p>}{history.nextBefore && <button type="button" className="button quote-load-more" disabled={historyLoading} onClick={() => { void loadHistory(history.request, history.nextBefore!); }}>Carregar alterações anteriores</button>}</section>}
+    {history && <section className="quote-history" aria-labelledby="quote-history-title"><div className="quote-history-heading"><div><span className="section-kicker">CADA ALTERAÇÃO FICA REGISTRADA</span><h2 id="quote-history-title" tabIndex={-1} ref={historyHeading}>Histórico de {history.request.clientName}</h2><p>Criado em {formatQuoteDate(history.request.createdAt, true)} · {history.request.revision} {history.request.revision === 1 ? "versão" : "versões"} registradas</p></div><button className="button" type="button" onClick={() => { ++historyGeneration.current; setHistory(null); setHistoryLoading(false); }}>Fechar histórico</button></div>{historyError && <div className="quote-error" role="alert"><p>{historyError}</p><button type="button" className="button" onClick={() => { void loadHistory(history.request); }}>Tentar novamente</button></div>}<div className="quote-versions">{history.versions.map(version => <details key={version.revision}><summary><span className="quote-version-index">{String(version.revision).padStart(2, "0")}</span><span><strong>{actions[version.action] ?? "Pedido atualizado"}</strong><small>{formatQuoteDate(version.changedAt, true)}</small></span><span className="quote-version-amount">{recordAmount(version.snapshot)}</span><span aria-hidden="true">+</span></summary><QuoteSnapshot record={version.snapshot} /></details>)}</div>{historyLoading && <p className="quote-loading" role="status">Carregando alterações…</p>}{history.nextBefore && <button type="button" className="button quote-load-more" disabled={historyLoading} onClick={() => { void loadHistory(history.request, history.nextBefore!); }}>Carregar alterações anteriores</button>}</section>}
   </div>;
 }
 
 function QuoteSnapshot({ record }: { record: QuoteRequestRecord }) {
-  return <div className="quote-snapshot"><dl><div><dt>Cliente</dt><dd>{record.clientName}</dd></div><div><dt>Contato</dt><dd>{record.contact || "Não informado"}</dd></div><div><dt>Solicitado em</dt><dd>{formatQuoteDate(record.requestedOn)}</dd></div><div><dt>Valor total</dt><dd>{formatQuoteAmount(record.amountCents)}</dd></div><div><dt>Envio ao cliente</dt><dd>{record.sent ? `Enviado${record.sentAt ? ` · ${formatQuoteDate(record.sentAt, true)}` : ""}` : "Não enviado"}</dd></div><div><dt>Arquivo</dt><dd>{record.archivedAt ? `Arquivado em ${formatQuoteDate(record.archivedAt, true)}` : "Em andamento"}</dd></div></dl><ol>{record.items.map(item => <li key={item.id}><strong>{item.quantity} × {item.description}</strong>{item.height && <p>Altura: {normalizeQuoteDimension(item.height)}</p>}{item.width && <p>Largura: {normalizeQuoteDimension(item.width)}</p>}{item.measurements && <p>Medidas: {item.measurements}</p>}{item.details && <p>{item.details}</p>}</li>)}</ol>{record.notes && <div><strong>Observações</strong><p>{record.notes}</p></div>}</div>;
+  return <div className="quote-snapshot"><dl><div><dt>Cliente</dt><dd>{record.clientName}</dd></div><div><dt>Contato</dt><dd>{record.contact || "Não informado"}</dd></div><div><dt>Solicitado em</dt><dd>{formatQuoteDate(record.requestedOn)}</dd></div><div><dt>{record.pricingMode === "items" ? "Total dos itens" : "Valor total"}</dt><dd>{recordAmount(record)}</dd></div><div><dt>Envio ao cliente</dt><dd>{record.sent ? `Enviado${record.sentAt ? ` · ${formatQuoteDate(record.sentAt, true)}` : ""}` : "Não enviado"}</dd></div><div><dt>Arquivo</dt><dd>{record.archivedAt ? `Arquivado em ${formatQuoteDate(record.archivedAt, true)}` : "Em andamento"}</dd></div></dl><ol>{record.items.map(item => <li key={item.id}><strong>{item.quantity} × {item.description}</strong>{item.height && <p>Altura: {normalizeQuoteDimension(item.height)}</p>}{item.width && <p>Largura: {normalizeQuoteDimension(item.width)}</p>}{item.measurements && <p>Medidas: {item.measurements}</p>}{item.details && <p>{item.details}</p>}{(record.pricingMode === "items" || item.unitAmountCents != null) && <p>Valor unitário: {formatQuoteAmount(item.unitAmountCents)} · Subtotal: {formatQuoteAmount(calculateQuotePricing([item]).amountCents)}</p>}</li>)}</ol>{record.legacyAmountCents != null && <p><strong>Total anterior, sem divisão por item (referência):</strong> {formatQuoteAmount(record.legacyAmountCents)}</p>}{record.notes && <div><strong>Observações</strong><p>{record.notes}</p></div>}</div>;
+}
+
+function QuoteItemPrice({ item, index, value, onChange }: { item: QuoteRequestItem; index: number; value: string; onChange: (value: string) => void }) {
+  const price = parseQuoteAmount(value);
+  let subtotal: number | null = null;
+  let error = price.valid ? "" : QUOTE_AMOUNT_ERROR;
+  if (!error) {
+    try { subtotal = calculateQuotePricing([{ ...item, unitAmountCents: price.amountCents }]).amountCents; }
+    catch (failure) { error = messageOf(failure); }
+  }
+  const inputId = `quote-price-${item.id}`;
+  const helpId = `quote-price-help-${item.id}`;
+  return <div className="quote-item-price">
+    <div><label htmlFor={inputId}>Valor unitário (R$) <small>opcional</small><span className="quote-sr-only"> do item {index + 1}</span></label><div className="quote-currency-input"><span aria-hidden="true">R$</span><input id={inputId} name="unitAmount" type="text" inputMode="decimal" maxLength={40} placeholder="Ex.: 1.250,50" value={value} aria-describedby={helpId} aria-invalid={Boolean(error)} onChange={event => onChange(event.target.value)} /></div></div>
+    <div className="quote-item-subtotal"><span>Subtotal do item</span><output htmlFor={`${inputId} quote-quantity-${item.id}`}>{error ? "Confira o item" : formatQuoteAmount(subtotal)}</output></div>
+    <p id={helpId} className={error ? "quote-price-error" : ""}>{error || "Quantidade × valor unitário. Deixe em branco se ainda não tiver o valor."}</p>
+  </div>;
 }
