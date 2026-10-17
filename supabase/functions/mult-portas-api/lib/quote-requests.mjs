@@ -22,7 +22,7 @@ function text(value, max, label, required = false) {
   if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(result)) throw new Error(`${label} contém caracteres inválidos.`);
   return result;
 }
-/** @typedef {{ id: string, description: string, measurements: string, quantity: number, details: string }} QuoteRequestItem */
+/** @typedef {{ id: string, description: string, height?: string, width?: string, measurements: string, quantity: number, details: string }} QuoteRequestItem */
 /** @typedef {{ clientName: string, contact: string, requestedOn: string, notes: string, sent: boolean, amountCents: number | null, items: QuoteRequestItem[] }} QuoteRequestFields */
 /** @typedef {QuoteRequestFields & { id: string, createdAt: string, updatedAt: string, revision: number, sentAt: string | null, archivedAt: string | null }} QuoteRequestRecord */
 /** @typedef {{ revision: number, action: string, changedAt: string, snapshot: QuoteRequestRecord }} QuoteRequestVersion */
@@ -43,6 +43,8 @@ export function validateQuoteFields(value) {
     seen.add(item.id);
     if (!Number.isSafeInteger(item.quantity) || item.quantity < 1 || item.quantity > 10_000) throw new Error(`Confira a quantidade do item ${index + 1}.`);
     return { id: item.id, description: text(item.description, 500, `Item ${index + 1}`, true),
+      height: text(item.height ?? '', 80, `Altura do item ${index + 1}`),
+      width: text(item.width ?? '', 80, `Largura do item ${index + 1}`),
       measurements: text(item.measurements ?? '', 240, `Medidas do item ${index + 1}`), quantity: item.quantity,
       details: text(item.details ?? '', 800, `Detalhes do item ${index + 1}`) };
   });
@@ -51,7 +53,7 @@ export function validateQuoteFields(value) {
 /** @param {QuoteRequestRecord} request */
 export function buildQuoteRequestSummary(request) {
   return [`Cliente: ${request.clientName}`, `Solicitado em: ${formatQuoteDate(request.requestedOn)}`,
-    ...request.items.map(item => `${item.quantity} × ${[item.description, item.measurements, item.details].filter(Boolean).join(' | ')}`),
+    ...request.items.map(item => `${item.quantity} × ${[item.description, item.height ? `Altura: ${item.height}` : '', item.width ? `Largura: ${item.width}` : '', item.measurements, item.details].filter(Boolean).join(' | ')}`),
     ...(request.amountCents != null ? [`Valor total: ${formatQuoteAmount(request.amountCents)}`] : []),
     ...(request.notes ? [`Observações: ${request.notes}`] : [])].join('\n');
 }
