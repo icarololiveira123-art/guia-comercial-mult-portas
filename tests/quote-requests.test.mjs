@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildQuoteRequestSummary, formatQuoteDate, isQuoteId, QUOTE_ITEM_LIMIT,
-  QUOTE_PAGE_SIZE, quoteToday, validQuoteDate, validateQuoteFields,
+  QUOTE_PAGE_SIZE, normalizeQuoteDimension, quoteToday, validQuoteDate, validateQuoteFields,
 } from "../app/lib/quote-requests.mjs";
 
 function fields(overrides = {}) {
@@ -102,4 +102,21 @@ test("height, width and free measurements are independently optional and preserv
   assert.match(buildQuoteRequestSummary(record), /Altura: 2,30 m \| Largura: 2,00 m \| Vão a confirmar/);
   const blank = validateQuoteFields({ ...base, items: [{ ...base.items[0], measurements: "" }] });
   assert.doesNotMatch(buildQuoteRequestSummary(blank), /Altura:|Largura:/);
+});
+
+
+test("dimensions add meters automatically to numbers while preserving blanks and explicit units", () => {
+  for (const [input, expected] of [["", ""], ["  ", ""], ["2", "2 m"], ["2,30", "2,30 m"],
+    ["2.30", "2.30 m"], [" 2,30m ", "2,30 m"], ["2,30 m", "2,30 m"],
+    ["230 cm", "230 cm"], ["2000 mm", "2000 mm"], ["A confirmar", "A confirmar"]]) {
+    assert.equal(normalizeQuoteDimension(input), expected);
+    assert.equal(normalizeQuoteDimension(expected), expected);
+  }
+  const base = fields();
+  const record = validateQuoteFields({ ...base, items: [{ ...base.items[0], height: "2,30", width: "2.00" }] });
+  assert.match(buildQuoteRequestSummary({ ...record, items: [{ ...record.items[0], height: "2,30", width: "230 cm" }] }), /Altura: 2,30 m \| Largura: 230 cm/);
+  assert.equal(record.items[0].height, "2,30 m");
+  assert.equal(record.items[0].width, "2.00 m");
+  assert.match(buildQuoteRequestSummary(record), /Altura: 2,30 m \| Largura: 2.00 m/);
+  assert.throws(() => validateQuoteFields({ ...base, items: [{ ...base.items[0], height: "2".repeat(80) }] }));
 });

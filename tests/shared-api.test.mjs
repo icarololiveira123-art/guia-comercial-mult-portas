@@ -1004,7 +1004,7 @@ test("quote items save with no dimensions and synchronize optional height and wi
   const elsewhere = createSharedApi(f.options);
   const login = await f.call("/api/auth/login", { method: "POST", body: { username: "alice", password: alice.password } }, elsewhere);
   const path = `/api/quote-requests/${body.id}`;
-  const withDimensions = { ...body, baseRevision: 1, mutationId: crypto.randomUUID(), items: [{ ...body.items[0], height: "2,30 m", width: "230 cm", measurements: "Confirmar vão na obra" }] };
+  const withDimensions = { ...body, baseRevision: 1, mutationId: crypto.randomUUID(), items: [{ ...body.items[0], height: "2,30", width: "230 cm", measurements: "Confirmar vão na obra" }] };
   const edited = await f.call(path, { method: "PUT", token: login.body.token, body: withDimensions }, elsewhere);
   assert.equal(edited.status, 200);
   const remote = await f.call(path, { token: alice.token });
