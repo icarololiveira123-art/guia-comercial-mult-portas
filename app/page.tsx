@@ -1656,6 +1656,8 @@ export default function Home() {
   const [dataLoaded, setDataLoaded] = useState(false);
   const [dataLoadError, setDataLoadError] = useState("");
   const [dataLoadAttempt, setDataLoadAttempt] = useState(0);
+  const [catalogSyncVersion, setCatalogSyncVersion] = useState(0);
+  const [workspaceSyncNotice, setWorkspaceSyncNotice] = useState("");
   const [damagedPendingBackup, setDamagedPendingBackup] = useState<{ userId: number; raw: string } | null>(null);
   const [clientProgressVersion, setClientProgressVersion] = useState(0);
   const [conflictDraftAvailable, setConflictDraftAvailable] = useState(false);
@@ -1676,6 +1678,7 @@ export default function Home() {
   const sessionEpochRef = useRef(0);
   const revisionRef = useRef<string | null>(null);
   const skipNextAutosaveRef = useRef(false);
+  const workspaceEditVersionRef = useRef(0);
   const toastTimerRef = useRef<number | null>(null);
   const trainingChatEndRef = useRef<HTMLDivElement | null>(null);
   const trainingRequestRef = useRef<{ id: number; controller: AbortController; sellerMessage: string; audioUrl?: string } | null>(null);
@@ -1693,6 +1696,7 @@ export default function Home() {
     // A request from the previous account may still finish after the next
     // account signs in. Its result must not touch the new workspace.
     sessionEpochRef.current += 1;
+    setWorkspaceSyncNotice("");
     setWorkspaceAccess(false);
     progressStateRef.current = { schemaVersion: 1 };
     progressSnapshotRef.current = "";
@@ -1937,6 +1941,158 @@ export default function Home() {
     return () => { cancelled = true; };
   }, []);
 
+  const applyStoredWorkspace = useCallback((state: PersistedGuideState | null) => {
+    const savedSales = Array.isArray(state?.sales) ? state.sales : [];
+    const savedTiming = Array.isArray(state?.timing) ? state.timing : [];
+    const savedFollowUps = Array.isArray(state?.followups) ? state.followups : null;
+    const savedChecks = Array.isArray(state?.checks) ? state.checks : [];
+    const savedMetrics = state?.metrics;
+    const savedTraining = state?.training;
+    const savedMessages = state?.messages;
+    const savedFactory = state?.factory;
+    const savedDrawerChecks = state?.drawerChecks;
+  
+    setDoneSales(savedSales.filter((item): item is string => typeof item === "string"));
+    setDoneTiming(savedTiming.filter((item): item is string => typeof item === "string"));
+    setFollowUps(Array.isArray(savedFollowUps) ? normalizeFollowUps(savedFollowUps) : []);
+    setMarketingDaily(normalizeMarketingDaily(state?.marketingDaily));
+    setDailyDone(savedChecks.filter((item): item is string => typeof item === "string"));
+    setMetrics(savedMetrics && typeof savedMetrics === "object" ? normalizeMetrics(savedMetrics) : { ...defaultMetrics });
+    if (savedTraining && typeof savedTraining === "object") {
+      const training = savedTraining as { rounds?: unknown; sessions?: unknown; best?: unknown; scenarios?: unknown; scoreHistory?: unknown; skillHistory?: unknown; scenarioStats?: unknown; lastPracticedAt?: unknown };
+      setTrainingStats({
+        rounds: Math.max(0, Math.round(Number(training.rounds ?? training.sessions) || 0)),
+        best: clampTrainingScore(Number(training.best)),
+        scenarios: Array.isArray(training.scenarios) ? training.scenarios.filter((item): item is string => typeof item === "string") : [],
+        scoreHistory: Array.isArray(training.scoreHistory)
+          ? training.scoreHistory.filter((item): item is number => typeof item === "number" && Number.isFinite(item)).map((item) => Math.max(0, Math.min(10, Math.round(item)))).slice(-120)
+          : [],
+        skillHistory: Array.isArray(training.skillHistory)
+          ? training.skillHistory.filter(isTrainingRecord).map((item) => normalizeSkillScores(item)).slice(-120)
+          : [],
+        scenarioStats: normalizeScenarioStats(training.scenarioStats),
+        lastPracticedAt: typeof training.lastPracticedAt === "string" ? training.lastPracticedAt.slice(0, 40) : null,
+      });
+    } else setTrainingStats(emptyTrainingStats());
+    setFactoryItems(savedFactory ? normalizeFactoryState(savedFactory) : []);
+    if (savedDrawerChecks && typeof savedDrawerChecks === "object" && !Array.isArray(savedDrawerChecks)) {
+      const normalizedChecks: Record<string, string[]> = {};
+      for (const [itemId, checks] of Object.entries(savedDrawerChecks).slice(0, 240)) {
+        if (Array.isArray(checks) && !["__proto__", "prototype", "constructor"].includes(itemId)) {
+          normalizedChecks[itemId] = checks.filter((item): item is string => typeof item === "string").slice(0, 40);
+        }
+      }
+      setDrawerChecks(normalizedChecks);
+    } else setDrawerChecks({});
+    const planner = savedMessages && typeof savedMessages === "object" && !Array.isArray(savedMessages)
+      ? savedMessages as Partial<{
+        name: string;
+        line: string;
+        environment: string;
+        objective: string;
+        question: string;
+        channel: QuickMessageChannel;
+        tone: QuickMessageTone;
+        proof: { company?: boolean; quality?: boolean; guarantee?: boolean };
+        audience: QuickMessageAudience;
+        provider: {
+          profile?: ProviderPresentationProfile;
+          name?: string;
+          type?: string;
+          region?: string;
+          objective?: string;
+          question?: string;
+        };
+        fair: {
+          profileId?: FairProfileId;
+          clientName?: string;
+          consultantName?: string;
+          interest?: string;
+          channel?: QuickMessageChannel;
+          tone?: FairTone;
+          eventDate?: string;
+          eventTime?: string;
+          city?: string;
+          discount?: string;
+          emojiMode?: FairEmojiMode;
+          includeEmojis?: boolean;
+        };
+      }>
+      : {};
+    setMessageAudience(planner.audience === "Prestador" ? "Prestador" : "Cliente");
+    setMessageName(typeof planner.name === "string" ? planner.name : "");
+    setMessageLine(typeof planner.line === "string" && planner.line ? planner.line : "Kit porta pronta");
+    setMessageEnvironment(typeof planner.environment === "string" ? planner.environment : "");
+    setMessageObjective(typeof planner.objective === "string" && planner.objective ? planner.objective : "apresentar uma opção de qualidade");
+    setMessageQuestion(typeof planner.question === "string" ? planner.question : "");
+    setMessageChannel(planner.channel === "Áudio" ? "Áudio" : "WhatsApp");
+    setMessageTone(planner.tone === "Direto" || planner.tone === "Próximo" ? planner.tone : "Consultivo");
+    setMessageProof({
+      company: planner.proof?.company !== false,
+      quality: planner.proof?.quality !== false,
+      guarantee: planner.proof?.guarantee !== false,
+    });
+    const savedProviderProfile: ProviderPresentationProfile = planner.provider?.profile === "Empresa" ? "Empresa" : "Prestador de Serviço";
+    const savedProviderTypeOptions = savedProviderProfile === "Empresa" ? providerCompanyTypeOptions : providerTypeOptions;
+    const savedProviderGoalOptions = savedProviderProfile === "Empresa" ? providerCompanyGoalOptions : providerGoalOptions;
+    const savedProviderQuestionOptions = savedProviderProfile === "Empresa" ? providerCompanyQuestionOptions : providerQuestionOptions;
+    setProviderProfile(savedProviderProfile);
+    setProviderName(typeof planner.provider?.name === "string" ? planner.provider.name : "");
+    setProviderType(typeof planner.provider?.type === "string" && savedProviderTypeOptions.includes(planner.provider.type) ? planner.provider.type : savedProviderTypeOptions[0]);
+    setProviderRegion(typeof planner.provider?.region === "string" && planner.provider.region ? planner.provider.region : "Araraquara e região");
+    setProviderObjective(typeof planner.provider?.objective === "string" && savedProviderGoalOptions.includes(planner.provider.objective) ? planner.provider.objective : savedProviderGoalOptions[0]);
+    setProviderQuestion(typeof planner.provider?.question === "string" && savedProviderQuestionOptions.includes(planner.provider.question) ? planner.provider.question : savedProviderQuestionOptions[0]);
+    setFairProfileId(planner.fair?.profileId && fairClientProfiles.some((profile) => profile.id === planner.fair?.profileId) ? planner.fair.profileId : "neutral");
+    setFairClientName(typeof planner.fair?.clientName === "string" ? planner.fair.clientName : "");
+    setFairConsultantName(typeof planner.fair?.consultantName === "string" ? planner.fair.consultantName : "");
+    setFairInterest(typeof planner.fair?.interest === "string" ? planner.fair.interest : "");
+    setFairChannel(planner.fair?.channel === "Áudio" ? "Áudio" : "WhatsApp");
+    setFairTone(planner.fair?.tone === "direct" || planner.fair?.tone === "persuasive" ? planner.fair.tone : "welcoming");
+    const savedFairEventDate = typeof planner.fair?.eventDate === "string" ? planner.fair.eventDate.trim() : "";
+    const savedFairEventTime = typeof planner.fair?.eventTime === "string" ? planner.fair.eventTime.trim() : "";
+    const savedFairDiscount = typeof planner.fair?.discount === "string" ? planner.fair.discount.trim() : "";
+    const isLegacyFairCampaign = savedFairEventDate === "sábado, 29/08"
+      && savedFairEventTime === "das 9h às 17h"
+      && savedFairDiscount === "até 60% OFF";
+    setFairEventDate(isLegacyFairCampaign ? "" : savedFairEventDate);
+    setFairEventTime(isLegacyFairCampaign ? "" : savedFairEventTime);
+    setFairCity(typeof planner.fair?.city === "string" && planner.fair.city ? planner.fair.city : "Araraquara");
+    setFairDiscount(isLegacyFairCampaign ? "" : savedFairDiscount);
+    setFairEmojiMode(fairEmojiModes.some((mode) => mode.id === planner.fair?.emojiMode)
+      ? planner.fair?.emojiMode as FairEmojiMode
+      : planner.fair?.includeEmojis === false ? "none" : "mixed");
+  }, []);
+
+  const applyStoredResume = useCallback((resume: unknown, restoreNavigation = true) => {
+    if (resume && typeof resume === "object" && !Array.isArray(resume)) {
+      const saved = resume as Record<string, unknown>;
+      if (restoreNavigation && typeof saved.section === "string" && sections.some((item) => item.id === saved.section)) setSection(saved.section as Section);
+      if (restoreNavigation && typeof saved.brand === "string" && Object.hasOwn(brandData, saved.brand)) setBrand(saved.brand as BrandId);
+      if (restoreNavigation && (saved.messageView === "preview" || saved.messageView === "examples")) setMessageView(saved.messageView);
+      if (restoreNavigation && (saved.fairView === "preview" || saved.fairView === "examples")) setFairView(saved.fairView);
+      if (Number.isInteger(saved.salesStep) && Number(saved.salesStep) >= 0 && Number(saved.salesStep) < salesSteps.length) setActiveSalesStep(Number(saved.salesStep));
+      if (Number.isInteger(saved.timingStep) && Number(saved.timingStep) >= 0 && Number(saved.timingStep) < timingSteps.length) setActiveTimingStep(Number(saved.timingStep));
+      if (Number.isInteger(saved.trainingScenario) && Number(saved.trainingScenario) >= 0 && Number(saved.trainingScenario) < trainingScenarios.length) setActiveTrainingScenario(Number(saved.trainingScenario));
+      if (Number.isInteger(saved.factoryWizardStep) && Number(saved.factoryWizardStep) >= 0 && Number(saved.factoryWizardStep) < factoryWizardSteps.length) setFactoryWizardStep(Number(saved.factoryWizardStep));
+      if (saved.factoryWizardDraft && typeof saved.factoryWizardDraft === "object" && !Array.isArray(saved.factoryWizardDraft)) {
+        const draft = saved.factoryWizardDraft as Record<string, unknown>;
+        setFactoryWizardDraft(Object.fromEntries(factoryWizardSteps.map(({ key }) => [key, typeof draft[key] === "string" ? draft[key].slice(0, 300) : ""])) as Record<FactoryWizardField, string>);
+      }
+      if (saved.trainingStarted === true && Array.isArray(saved.trainingMessages)) {
+        const messages = saved.trainingMessages
+          .filter((item): item is { role: "customer" | "seller"; text: string } => item && typeof item === "object" && (item.role === "customer" || item.role === "seller") && typeof item.text === "string")
+          .slice(-24)
+          .map((item) => ({ role: item.role, text: item.text.slice(0, 3000) }));
+        setTrainingMessages(messages);
+        setTrainingStarted(messages.length > 0);
+      } else if (!restoreNavigation) {
+        setTrainingMessages([]);
+        setTrainingStarted(false);
+      }
+      setTrainingInput(typeof saved.trainingInput === "string" ? saved.trainingInput.slice(0, 3000) : "");
+    }
+  }, []);
+
   useEffect(() => {
     if (!authUserId) return;
 
@@ -2005,154 +2161,11 @@ export default function Home() {
       if (cancelled) return;
       try { setConflictDraftAvailable(localStorage.getItem(scopedStorageKey(authUserId, "conflict-draft-v1")) !== null); } catch { /* Recovery remains optional when local storage is blocked. */ }
 
-      const savedSales = Array.isArray(state?.sales) ? state.sales : [];
-      const savedTiming = Array.isArray(state?.timing) ? state.timing : [];
-      const savedFollowUps = Array.isArray(state?.followups) ? state.followups : null;
-      const savedChecks = Array.isArray(state?.checks) ? state.checks : [];
-      const savedMetrics = state?.metrics;
-      const savedTraining = state?.training;
-      const savedMessages = state?.messages;
-      const savedFactory = state?.factory;
-      const savedDrawerChecks = state?.drawerChecks;
-
-      setDoneSales(savedSales.filter((item): item is string => typeof item === "string"));
-      setDoneTiming(savedTiming.filter((item): item is string => typeof item === "string"));
-      setFollowUps(Array.isArray(savedFollowUps) ? normalizeFollowUps(savedFollowUps) : []);
-      setMarketingDaily(normalizeMarketingDaily(state?.marketingDaily));
-      setDailyDone(savedChecks.filter((item): item is string => typeof item === "string"));
-      setMetrics(savedMetrics && typeof savedMetrics === "object" ? normalizeMetrics(savedMetrics) : { ...defaultMetrics });
-      if (savedTraining && typeof savedTraining === "object") {
-        const training = savedTraining as { rounds?: unknown; sessions?: unknown; best?: unknown; scenarios?: unknown; scoreHistory?: unknown; skillHistory?: unknown; scenarioStats?: unknown; lastPracticedAt?: unknown };
-        setTrainingStats({
-          rounds: Math.max(0, Math.round(Number(training.rounds ?? training.sessions) || 0)),
-          best: clampTrainingScore(Number(training.best)),
-          scenarios: Array.isArray(training.scenarios) ? training.scenarios.filter((item): item is string => typeof item === "string") : [],
-          scoreHistory: Array.isArray(training.scoreHistory)
-            ? training.scoreHistory.filter((item): item is number => typeof item === "number" && Number.isFinite(item)).map((item) => Math.max(0, Math.min(10, Math.round(item)))).slice(-120)
-            : [],
-          skillHistory: Array.isArray(training.skillHistory)
-            ? training.skillHistory.filter(isTrainingRecord).map((item) => normalizeSkillScores(item)).slice(-120)
-            : [],
-          scenarioStats: normalizeScenarioStats(training.scenarioStats),
-          lastPracticedAt: typeof training.lastPracticedAt === "string" ? training.lastPracticedAt.slice(0, 40) : null,
-        });
-      } else setTrainingStats(emptyTrainingStats());
-      setFactoryItems(savedFactory ? normalizeFactoryState(savedFactory) : []);
-      if (savedDrawerChecks && typeof savedDrawerChecks === "object" && !Array.isArray(savedDrawerChecks)) {
-        const normalizedChecks: Record<string, string[]> = {};
-        for (const [itemId, checks] of Object.entries(savedDrawerChecks).slice(0, 240)) {
-          if (Array.isArray(checks) && !["__proto__", "prototype", "constructor"].includes(itemId)) {
-            normalizedChecks[itemId] = checks.filter((item): item is string => typeof item === "string").slice(0, 40);
-          }
-        }
-        setDrawerChecks(normalizedChecks);
-      } else setDrawerChecks({});
-      const planner = savedMessages && typeof savedMessages === "object" && !Array.isArray(savedMessages)
-        ? savedMessages as Partial<{
-          name: string;
-          line: string;
-          environment: string;
-          objective: string;
-          question: string;
-          channel: QuickMessageChannel;
-          tone: QuickMessageTone;
-          proof: { company?: boolean; quality?: boolean; guarantee?: boolean };
-          audience: QuickMessageAudience;
-          provider: {
-            profile?: ProviderPresentationProfile;
-            name?: string;
-            type?: string;
-            region?: string;
-            objective?: string;
-            question?: string;
-          };
-          fair: {
-            profileId?: FairProfileId;
-            clientName?: string;
-            consultantName?: string;
-            interest?: string;
-            channel?: QuickMessageChannel;
-            tone?: FairTone;
-            eventDate?: string;
-            eventTime?: string;
-            city?: string;
-            discount?: string;
-            emojiMode?: FairEmojiMode;
-            includeEmojis?: boolean;
-          };
-        }>
-        : {};
-      setMessageAudience(planner.audience === "Prestador" ? "Prestador" : "Cliente");
-      setMessageName(typeof planner.name === "string" ? planner.name : "");
-      setMessageLine(typeof planner.line === "string" && planner.line ? planner.line : "Kit porta pronta");
-      setMessageEnvironment(typeof planner.environment === "string" ? planner.environment : "");
-      setMessageObjective(typeof planner.objective === "string" && planner.objective ? planner.objective : "apresentar uma opção de qualidade");
-      setMessageQuestion(typeof planner.question === "string" ? planner.question : "");
-      setMessageChannel(planner.channel === "Áudio" ? "Áudio" : "WhatsApp");
-      setMessageTone(planner.tone === "Direto" || planner.tone === "Próximo" ? planner.tone : "Consultivo");
-      setMessageProof({
-        company: planner.proof?.company !== false,
-        quality: planner.proof?.quality !== false,
-        guarantee: planner.proof?.guarantee !== false,
-      });
-      const savedProviderProfile: ProviderPresentationProfile = planner.provider?.profile === "Empresa" ? "Empresa" : "Prestador de Serviço";
-      const savedProviderTypeOptions = savedProviderProfile === "Empresa" ? providerCompanyTypeOptions : providerTypeOptions;
-      const savedProviderGoalOptions = savedProviderProfile === "Empresa" ? providerCompanyGoalOptions : providerGoalOptions;
-      const savedProviderQuestionOptions = savedProviderProfile === "Empresa" ? providerCompanyQuestionOptions : providerQuestionOptions;
-      setProviderProfile(savedProviderProfile);
-      setProviderName(typeof planner.provider?.name === "string" ? planner.provider.name : "");
-      setProviderType(typeof planner.provider?.type === "string" && savedProviderTypeOptions.includes(planner.provider.type) ? planner.provider.type : savedProviderTypeOptions[0]);
-      setProviderRegion(typeof planner.provider?.region === "string" && planner.provider.region ? planner.provider.region : "Araraquara e região");
-      setProviderObjective(typeof planner.provider?.objective === "string" && savedProviderGoalOptions.includes(planner.provider.objective) ? planner.provider.objective : savedProviderGoalOptions[0]);
-      setProviderQuestion(typeof planner.provider?.question === "string" && savedProviderQuestionOptions.includes(planner.provider.question) ? planner.provider.question : savedProviderQuestionOptions[0]);
-      setFairProfileId(planner.fair?.profileId && fairClientProfiles.some((profile) => profile.id === planner.fair?.profileId) ? planner.fair.profileId : "neutral");
-      setFairClientName(typeof planner.fair?.clientName === "string" ? planner.fair.clientName : "");
-      setFairConsultantName(typeof planner.fair?.consultantName === "string" ? planner.fair.consultantName : "");
-      setFairInterest(typeof planner.fair?.interest === "string" ? planner.fair.interest : "");
-      setFairChannel(planner.fair?.channel === "Áudio" ? "Áudio" : "WhatsApp");
-      setFairTone(planner.fair?.tone === "direct" || planner.fair?.tone === "persuasive" ? planner.fair.tone : "welcoming");
-      const savedFairEventDate = typeof planner.fair?.eventDate === "string" ? planner.fair.eventDate.trim() : "";
-      const savedFairEventTime = typeof planner.fair?.eventTime === "string" ? planner.fair.eventTime.trim() : "";
-      const savedFairDiscount = typeof planner.fair?.discount === "string" ? planner.fair.discount.trim() : "";
-      const isLegacyFairCampaign = savedFairEventDate === "sábado, 29/08"
-        && savedFairEventTime === "das 9h às 17h"
-        && savedFairDiscount === "até 60% OFF";
-      setFairEventDate(isLegacyFairCampaign ? "" : savedFairEventDate);
-      setFairEventTime(isLegacyFairCampaign ? "" : savedFairEventTime);
-      setFairCity(typeof planner.fair?.city === "string" && planner.fair.city ? planner.fair.city : "Araraquara");
-      setFairDiscount(isLegacyFairCampaign ? "" : savedFairDiscount);
-      setFairEmojiMode(fairEmojiModes.some((mode) => mode.id === planner.fair?.emojiMode)
-        ? planner.fair?.emojiMode as FairEmojiMode
-        : planner.fair?.includeEmojis === false ? "none" : "mixed");
+      applyStoredWorkspace(state);
       if (IS_GITHUB_PAGES) {
         try {
           const resume = loadedProgress?.resume ?? safelyParseJson(localStorage.getItem(scopedStorageKey(authUserId, "resume-v1")));
-          if (resume && typeof resume === "object" && !Array.isArray(resume)) {
-            const saved = resume as Record<string, unknown>;
-            if (typeof saved.section === "string" && sections.some((item) => item.id === saved.section)) setSection(saved.section as Section);
-            if (typeof saved.brand === "string" && Object.hasOwn(brandData, saved.brand)) setBrand(saved.brand as BrandId);
-            if (saved.messageView === "preview" || saved.messageView === "examples") setMessageView(saved.messageView);
-            if (saved.fairView === "preview" || saved.fairView === "examples") setFairView(saved.fairView);
-            if (Number.isInteger(saved.salesStep) && Number(saved.salesStep) >= 0 && Number(saved.salesStep) < salesSteps.length) setActiveSalesStep(Number(saved.salesStep));
-            if (Number.isInteger(saved.timingStep) && Number(saved.timingStep) >= 0 && Number(saved.timingStep) < timingSteps.length) setActiveTimingStep(Number(saved.timingStep));
-            if (Number.isInteger(saved.trainingScenario) && Number(saved.trainingScenario) >= 0 && Number(saved.trainingScenario) < trainingScenarios.length) setActiveTrainingScenario(Number(saved.trainingScenario));
-            if (Number.isInteger(saved.factoryWizardStep) && Number(saved.factoryWizardStep) >= 0 && Number(saved.factoryWizardStep) < factoryWizardSteps.length) setFactoryWizardStep(Number(saved.factoryWizardStep));
-            if (saved.factoryWizardDraft && typeof saved.factoryWizardDraft === "object" && !Array.isArray(saved.factoryWizardDraft)) {
-              const draft = saved.factoryWizardDraft as Record<string, unknown>;
-              setFactoryWizardDraft(Object.fromEntries(factoryWizardSteps.map(({ key }) => [key, typeof draft[key] === "string" ? draft[key].slice(0, 300) : ""])) as Record<FactoryWizardField, string>);
-            }
-            if (saved.trainingStarted === true && Array.isArray(saved.trainingMessages)) {
-              const messages = saved.trainingMessages
-                .filter((item): item is { role: "customer" | "seller"; text: string } => item && typeof item === "object" && (item.role === "customer" || item.role === "seller") && typeof item.text === "string")
-                .slice(-24)
-                .map((item) => ({ role: item.role, text: item.text.slice(0, 3000) }));
-              if (messages.length) {
-                setTrainingMessages(messages);
-                setTrainingStarted(true);
-              }
-            }
-            if (typeof saved.trainingInput === "string") setTrainingInput(saved.trainingInput.slice(0, 3000));
-          }
+          applyStoredResume(resume);
         } catch { /* O guia continua acessível quando o navegador bloqueia o armazenamento. */ }
       }
       setSaveStatus(usingLocalBackup ? (navigator.onLine ? "saving" : "offline") : "saved");
@@ -2165,7 +2178,66 @@ export default function Home() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [authUserId, dataLoadAttempt, resetEmployeeWorkspace]);
+  }, [authUserId, dataLoadAttempt, resetEmployeeWorkspace, applyStoredWorkspace, applyStoredResume]);
+
+  useEffect(() => {
+    if (!IS_SHARED_API || !workspaceAccess || !authUserId || !dataLoaded || !hydrated) return;
+    let running = false;
+    const controller = new AbortController();
+    const epoch = sessionEpochRef.current;
+    const isEditing = () => document.activeElement instanceof HTMLElement
+      && (document.activeElement.matches("input, textarea, select") || document.activeElement.isContentEditable);
+    const hasPendingChanges = () => Boolean(pendingStateRef.current || flushLoopRef.current || saveTimerRef.current !== null
+      || ["saving", "conflict", "error", "offline"].includes(saveStatus));
+    const refresh = async () => {
+      if (running || document.visibilityState === "hidden" || hasPendingChanges() || isEditing()) return;
+      running = true;
+      const revision = revisionRef.current;
+      const editVersion = workspaceEditVersionRef.current;
+      const progressSnapshot = progressSnapshotRef.current;
+      try {
+        // The shared client scopes this read to the selected employee while
+        // retaining the original panel session and its authorization.
+        const response = await apiFetch("/api/data", { cache: "no-store", signal: controller.signal });
+        const payload = await readResponseJson<{ state?: unknown; clientState?: unknown; revision?: unknown; error?: string }>(response);
+        if (controller.signal.aborted || epoch !== sessionEpochRef.current) return;
+        if (!response.ok) throw new Error(payload.error || "Não foi possível receber as atualizações deste perfil.");
+        if (revision !== revisionRef.current || editVersion !== workspaceEditVersionRef.current
+          || progressSnapshot !== progressSnapshotRef.current || hasPendingChanges() || isEditing()) return;
+        const nextRevision = typeof payload.revision === "string" ? payload.revision : null;
+        if (nextRevision === revision) { setWorkspaceSyncNotice(""); return; }
+        const state = payload.state && typeof payload.state === "object" && !Array.isArray(payload.state)
+          ? payload.state as PersistedGuideState : null;
+        const progress = normalizeClientProgress(payload.clientState ?? { schemaVersion: 1 });
+        const catalogsChanged = JSON.stringify(progress.brands) !== JSON.stringify(progressStateRef.current.brands);
+        applyClientProgress(authUserId, progress, undefined, { scope: "shared" });
+        progressStateRef.current = progress;
+        progressSnapshotRef.current = JSON.stringify(progress);
+        revisionRef.current = nextRevision;
+        // A received snapshot is a read: it must never be sent back as a new
+        // employee edit or disturb the page the reviewer chose to inspect.
+        skipNextAutosaveRef.current = true;
+        applyStoredWorkspace(state);
+        applyStoredResume(progress.resume, false);
+        if (catalogsChanged) setCatalogSyncVersion(version => version + 1);
+        if (state) void keepLocalWorkspace(authUserId, { state, clientState: progress, revision: nextRevision });
+        setWorkspaceSyncNotice("");
+        setLastSavedAt(new Date());
+      } catch (error) {
+        if (!controller.signal.aborted && epoch === sessionEpochRef.current) setWorkspaceSyncNotice(error instanceof Error ? error.message : "Não foi possível receber as atualizações deste perfil.");
+      } finally { running = false; }
+    };
+    const timer = window.setInterval(() => { void refresh(); }, 15_000);
+    const visible = () => { void refresh(); };
+    window.addEventListener("focus", visible);
+    window.addEventListener("online", visible);
+    document.addEventListener("visibilitychange", visible);
+    return () => {
+      controller.abort(); window.clearInterval(timer);
+      window.removeEventListener("focus", visible); window.removeEventListener("online", visible);
+      document.removeEventListener("visibilitychange", visible);
+    };
+  }, [workspaceAccess, authUserId, dataLoaded, hydrated, saveStatus, applyStoredWorkspace, applyStoredResume]);
 
   useEffect(() => {
     const browserWindow = window as typeof window & {
@@ -2258,6 +2330,7 @@ export default function Home() {
       skipNextAutosaveRef.current = false;
       return;
     }
+    workspaceEditVersionRef.current += 1;
 
     const localEntries: [keyof typeof STORAGE, unknown][] = [
       ["sales", state.sales],
@@ -3544,7 +3617,7 @@ export default function Home() {
         </div>
       </div>
 
-      {workspaceAccess && <div className="workspace-access-notice" role="status"><WorkspaceIcon name="work" /><span>Espaço de <strong>{authUser.displayName}</strong><small>@{authUser.username} · As alterações ficam salvas nesta conta.</small></span></div>}
+      {workspaceAccess && <div className="workspace-access-notice" role="status"><WorkspaceIcon name="work" /><span>Espaço de <strong>{authUser.displayName}</strong><small>@{authUser.username} · Dados salvos em qualquer computador aparecem neste perfil. Atualização automática a cada 15 segundos.</small>{workspaceSyncNotice && <small className="workspace-sync-error">{workspaceSyncNotice}</small>}</span></div>}
 
       <section className="workspace-content" id="workspace-main" tabIndex={-1}>
 
@@ -3922,7 +3995,7 @@ export default function Home() {
 
         {section === "catalog" && (
           <div className="catalog-module">
-            <CatalogWorkspace key={`${authUser.id}-${brand}-${dataLoadAttempt}`} brand={brand} userId={authUser.id} initialProgress={IS_SHARED_API ? progressStateRef.current.brands?.[brand] : undefined} currentBrand={currentBrand} brands={brandData} items={filteredCatalog} totalItemCount={catalogItems.length} studiedCatalogCount={studiedCatalogCount} catalogSearch={catalogSearch} catalogFamily={catalogFamily} families={families} assetHref={publicAssetHref} onSelectBrand={selectBrand} onSearchChange={setCatalogSearch} onFamilyChange={setCatalogFamily} onOpenItem={(item, trigger) => { catalogTriggerRef.current = trigger; setSelectedCatalog(item); }} />
+            <CatalogWorkspace key={`${authUser.id}-${brand}-${dataLoadAttempt}-${catalogSyncVersion}`} brand={brand} userId={authUser.id} initialProgress={IS_SHARED_API ? progressStateRef.current.brands?.[brand] : undefined} currentBrand={currentBrand} brands={brandData} items={filteredCatalog} totalItemCount={catalogItems.length} studiedCatalogCount={studiedCatalogCount} catalogSearch={catalogSearch} catalogFamily={catalogFamily} families={families} assetHref={publicAssetHref} onSelectBrand={selectBrand} onSearchChange={setCatalogSearch} onFamilyChange={setCatalogFamily} onOpenItem={(item, trigger) => { catalogTriggerRef.current = trigger; setSelectedCatalog(item); }} />
             {selectedCatalog && <div className="drawer-backdrop" onClick={() => setSelectedCatalog(null)}><aside className="catalog-drawer" ref={catalogDialogRef} role="dialog" aria-modal="true" aria-label={`Ficha de ${selectedCatalog.title}`} onClick={(event) => event.stopPropagation()}><button className="drawer-close" aria-label="Fechar ficha" onClick={() => setSelectedCatalog(null)}>×</button><span className="family-badge">{selectedCatalog.family}</span><h2>{selectedCatalog.title}</h2><p className="drawer-spec">{selectedCatalog.spec}</p><div className="drawer-section"><span className="mini-label">QUANDO INDICAR</span><p>{selectedCatalog.bestFor}</p></div><div className="drawer-section pitch"><span className="mini-label">ARGUMENTO DE VENDA</span><p>“{selectedCatalog.pitch}”</p><div className="drawer-actions"><button className="copy-button" onClick={() => copyMessage(selectedCatalog.pitch)}>Copiar argumento <span>⧉</span></button><button className="copy-button" onClick={() => { setMessageLine(selectedCatalog.title); setSelectedCatalog(null); navigate("messages"); }}>Planejar mensagem <span>→</span></button></div></div><div className="drawer-section"><span className="mini-label">CONFIRMAR ANTES DE FECHAR</span>{selectedCatalog.checks.map((check) => <label className="drawer-check" key={check}><input type="checkbox" checked={drawerChecks[selectedCatalog.id]?.includes(check) ?? false} onChange={() => toggleCatalogCheck(selectedCatalog.id, check)} /><span className="fake-checkbox">✓</span>{check}</label>)}</div>{selectedCatalog.documentHref && <a className="catalog-pdf-link" href={publicAssetHref(selectedCatalog.documentHref)} target="_blank" rel="noreferrer">Abrir catálogo completo em PDF <span>↗</span></a>}<div className="drawer-source"><span>Fonte</span><strong>{selectedCatalog.source}</strong><small>{brandData[selectedCatalog.brand].catalog}</small></div></aside></div>}
           </div>
         )}
@@ -3946,7 +4019,7 @@ export default function Home() {
           </div>
         )}
 
-        <QuoteRequests key={`quote-requests-${authUser.id}`} userId={authUser.id} request={apiFetch} active={section === "quotes"} />
+        <QuoteRequests key={`quote-requests-${authUser.id}`} userId={authUser.id} request={apiFetch} active={section === "quotes"} liveUpdates={workspaceAccess} />
 
         {section === "marketing" && <MarketingDaily key={authUser.id} seller={authUser.displayName} state={marketingDaily} onChange={setMarketingDaily} />}
 

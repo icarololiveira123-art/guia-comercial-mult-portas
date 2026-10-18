@@ -9,7 +9,7 @@ import {
 } from "./lib/quote-requests.mjs";
 import { formatQuoteAmount, parseQuoteAmount, QUOTE_AMOUNT_ERROR, quoteAmountInput } from "./lib/quote-amount.mjs";
 
-type Props = { userId: number; request: (path: string, init?: RequestInit) => Promise<Response>; active: boolean };
+type Props = { userId: number; request: (path: string, init?: RequestInit) => Promise<Response>; active: boolean; liveUpdates?: boolean };
 type Draft = { id: string; baseRevision: number | null; fields: QuoteRequestFields; amountText: string; itemAmountTexts: Record<string, string>; mutationId: string; dirty: boolean; createdAt: string | null };
 type Counts = { total: number; pending: number; sent: number; archived: number };
 type ListReply = { requests: QuoteRequestRecord[]; counts: Counts; nextCursor: string | null };
@@ -61,7 +61,7 @@ function recordAmount(record: QuoteRequestRecord) {
   return `${formatQuoteAmount(record.amountCents)}${record.pricingMode === "items" && record.amountCents != null && record.items.some(item => item.unitAmountCents == null) ? " · parcial" : ""}`;
 }
 
-export function QuoteRequests({ userId, request, active }: Props) {
+export function QuoteRequests({ userId, request, active, liveUpdates = false }: Props) {
   const storageKey = `mult-portas-quote-draft-v2:${userId}`;
   const [draft, setDraft] = useState<Draft>(() => readDraft(storageKey));
   const [scope, setScope] = useState<"active" | "archived">("active");
@@ -89,6 +89,8 @@ export function QuoteRequests({ userId, request, active }: Props) {
   const controllers = useRef(new Set<AbortController>());
   const listController = useRef<AbortController | null>(null);
   const listGeneration = useRef(0);
+  const visiblePagesRef = useRef(1);
+  const listBusyRef = useRef(false);
   const historyGeneration = useRef(0);
   const busyRef = useRef(false);
   const formHeading = useRef<HTMLHeadingElement>(null);
@@ -135,29 +137,60 @@ export function QuoteRequests({ userId, request, active }: Props) {
     } finally { controllers.current.delete(controller); }
   }, []);
 
-  const loadList = useCallback(async (cursor?: string) => {
+  const loadList = useCallback(async (cursor?: string, background = false) => {
+    if (background && (listBusyRef.current || busyRef.current)) return;
     listController.current?.abort();
     const controller = new AbortController();
     listController.current = controller;
     const generation = ++listGeneration.current;
-    setLoading(true); setListError("");
+    listBusyRef.current = true;
+    if (!background) setLoading(true);
+    setListError("");
     const params = new URLSearchParams({ scope, filter: "all", search: searchReady });
-    if (cursor) params.set("cursor", cursor);
     try {
-      const result = await call<ListReply>(`/api/quote-requests?${params}`, undefined, controller);
+      let next = cursor;
+      let result: ListReply | null = null;
+      const requests: QuoteRequestRecord[] = [];
+      const pagesToRead = background ? visiblePagesRef.current : 1;
+      let pagesRead = 0;
+      for (let page = 0; page < pagesToRead; page++) {
+        if (next) params.set("cursor", next); else params.delete("cursor");
+        result = await call<ListReply>(`/api/quote-requests?${params}`, undefined, controller);
+        if (generation !== listGeneration.current) return;
+        requests.push(...result.requests);
+        pagesRead++;
+        next = result.nextCursor ?? undefined;
+        if (!next) break;
+      }
       if (generation !== listGeneration.current) return;
-      void keepLocalQuotes(userId, result.requests);
-      setRows(current => cursor ? [...current, ...result.requests.filter(item => !current.some(saved => saved.id === item.id))] : result.requests);
+      if (!result) return;
+      visiblePagesRef.current = cursor ? visiblePagesRef.current + pagesRead : pagesRead;
+      void keepLocalQuotes(userId, requests);
+      setRows(current => cursor ? [...current, ...requests.filter(item => !current.some(saved => saved.id === item.id))] : requests);
       setCounts(result.counts); setNextCursor(result.nextCursor);
+      if (background) setDraft(current => {
+        const received = requests.find(item => item.id === current.id);
+        return !current.dirty && received && received.revision !== current.baseRevision ? editDraft(received) : current;
+      });
     } catch (error) {
       if (!isAbort(error) && generation === listGeneration.current) setListError(messageOf(error));
-    } finally { if (mounted.current && generation === listGeneration.current) setLoading(false); }
+    } finally { if (generation === listGeneration.current) { listBusyRef.current = false; if (mounted.current) setLoading(false); } }
   }, [scope, searchReady, call, userId]);
   useEffect(() => {
     if (!active) { listController.current?.abort(); return; }
-    const timer = window.setTimeout(() => { setRows([]); setNextCursor(null); void loadList(); }, 0);
+    const timer = window.setTimeout(() => { visiblePagesRef.current = 1; setRows([]); setNextCursor(null); void loadList(); }, 0);
     return () => { window.clearTimeout(timer); listController.current?.abort(); };
   }, [active, loadList, refresh]);
+
+  useEffect(() => {
+    if (!active || !liveUpdates) return;
+    const update = () => { if (document.visibilityState !== "hidden") void loadList(undefined, true); };
+    const timer = window.setInterval(update, 15_000);
+    window.addEventListener("focus", update);
+    window.addEventListener("online", update);
+    document.addEventListener("visibilitychange", update);
+    return () => { window.clearInterval(timer); window.removeEventListener("focus", update); window.removeEventListener("online", update); document.removeEventListener("visibilitychange", update); };
+  }, [active, liveUpdates, loadList]);
 
   function change(fields: Partial<QuoteRequestFields>) {
     setDraft(current => ({ ...current, fields: { ...current.fields, ...fields }, itemAmountTexts: fields.items ? Object.fromEntries(fields.items.map(item => [item.id, current.itemAmountTexts[item.id] ?? ""])) : current.itemAmountTexts, mutationId: uid(), dirty: true }));
