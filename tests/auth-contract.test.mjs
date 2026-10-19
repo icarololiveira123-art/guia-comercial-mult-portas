@@ -325,7 +325,7 @@ test("employee data and coach payloads have bounded, defensive parsing", async (
   const dataRoute = await readFile(new URL("../app/api/data/route.ts", import.meta.url), "utf8");
   const coachRoute = await readFile(new URL("../app/api/coach/route.ts", import.meta.url), "utf8");
   assert.match(dataRoute, /MAX_REQUEST_BODY_LENGTH/);
-  assert.match(dataRoute, /request\.text\(\)/);
+  assert.match(dataRoute, /readLimitedRequestText\(request,\s*MAX_REQUEST_BODY_LENGTH\)/);
   assert.match(coachRoute, /MAX_COACH_BODY_LENGTH/);
   assert.match(coachRoute, /isRecord\(parsed\)/);
   assert.match(coachRoute, /scenarioSignals/);

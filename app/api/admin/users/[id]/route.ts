@@ -4,7 +4,7 @@ import { employeeData, employeeSessions, employeeUsers } from "../../../../../db
 import { adminNotFound, getAdminSession } from "../../_lib";
 import { hashPassword, userPayload } from "../../../auth/_lib";
 import { parseEmployeeProfile } from "../_validation";
-import { rejectUntrustedMutation } from "../../../_security";
+import { rejectUntrustedMutation, safeErrorDetails } from "../../../_security";
 import { normalizeEmployeeState, summarizeEmployeeState } from "../../../data/state-contract.mjs";
 import { readBoundedAuthJson } from "../../../auth/_request-guard";
 
@@ -67,7 +67,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
       summary: summarizeEmployeeState(state),
     });
   } catch (error) {
-    console.error("admin_user_data_failed", { message: error instanceof Error ? error.message : String(error) });
+    console.error("admin_user_data_failed", safeErrorDetails(error));
     return jsonResponse({ error: "Não foi possível abrir os dados da conta." }, 503);
   }
 }
@@ -136,7 +136,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (/unique|constraint/i.test(message)) return jsonResponse({ error: "Esse usuário já está cadastrado." }, 409);
-    console.error("admin_user_update_failed", { message });
+    console.error("admin_user_update_failed", safeErrorDetails(error));
     return jsonResponse({ error: "Não foi possível atualizar o funcionário." }, 503);
   }
 }
@@ -165,7 +165,7 @@ export async function DELETE(request: Request, context: { params: Promise<{ id: 
     ]);
     return jsonResponse({ ok: true, id: userId });
   } catch (error) {
-    console.error("admin_user_delete_failed", { message: error instanceof Error ? error.message : String(error) });
+    console.error("admin_user_delete_failed", safeErrorDetails(error));
     return jsonResponse({ error: "Não foi possível apagar o funcionário." }, 503);
   }
 }

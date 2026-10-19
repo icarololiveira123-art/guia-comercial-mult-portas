@@ -1,6 +1,6 @@
 {
   "name": "mult-portas-marketing",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "Marketing diário da Mult Portas para Windows",
   "author": "Mult Portas",
@@ -46,11 +46,11 @@
       ],
       "icon": "build/icon.ico",
       "signAndEditExecutable": false,
-      "artifactName": "Marketing-Diario-Mult-Portas-1.0.0-Windows.exe"
+      "artifactName": "Marketing-Diario-Mult-Portas-1.0.1-Windows.exe"
     },
     "portable": {
       "requestExecutionLevel": "user",
-      "unpackDirName": "MultPortasMarketing100"
+      "unpackDirName": "MultPortasMarketing101"
     },
     "linux": {
       "target": "dir",

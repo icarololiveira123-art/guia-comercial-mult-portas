@@ -7,7 +7,7 @@ import {
   normalizeUsername,
   userPayload,
 } from "../_lib";
-import { rejectUntrustedMutation } from "../../_security";
+import { rejectUntrustedMutation, safeErrorDetails } from "../../_security";
 import { clearedAdminCookie } from "../../admin/_lib";
 import { consumeRegistrationQuota, rateLimitResponse, readBoundedAuthJson } from "../_request-guard";
 
@@ -17,7 +17,7 @@ export async function POST(request: Request) {
   try {
     return await handleRegister(request);
   } catch (error) {
-    console.error("auth_register_failed", { message: error instanceof Error ? error.message : String(error) });
+    console.error("auth_register_failed", safeErrorDetails(error));
     return Response.json({ error: "O cadastro não conseguiu acessar o armazenamento. Tente novamente em alguns segundos." }, { status: 503 });
   }
 }

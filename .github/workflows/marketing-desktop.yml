@@ -2,14 +2,14 @@ name: Marketing diário para Windows
 
 on:
   push:
-    branches: [feat/marketing-desktop]
+    branches: [main, feat/marketing-desktop]
     paths:
       - 'desktop-marketing/**'
       - '.github/workflows/marketing-desktop.yml'
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: marketing-desktop-windows
@@ -17,14 +17,18 @@ concurrency:
 
 jobs:
   windows:
+    permissions:
+      contents: read
     runs-on: windows-latest
     timeout-minutes: 20
     defaults:
       run:
         working-directory: desktop-marketing
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24'
           cache: npm
@@ -45,20 +49,53 @@ jobs:
       - name: Registrar integridade
         shell: pwsh
         run: |
-          $file = 'release/Marketing-Diario-Mult-Portas-1.0.0-Windows.exe'
+          $file = 'release/Marketing-Diario-Mult-Portas-1.0.1-Windows.exe'
           $hash = (Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$hash  Marketing-Diario-Mult-Portas-1.0.0-Windows.exe" | Out-File release/SHA256.txt -Encoding utf8
-      - name: Guardar executável e imagens de verificação
-        uses: actions/upload-artifact@v4
+          "$hash  Marketing-Diario-Mult-Portas-1.0.1-Windows.exe" | Out-File release/SHA256.txt -Encoding utf8
+      - name: Guardar executável verificado
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: Marketing-Diario-Windows
+          name: Marketing-Diario-Windows-1.0.1
+          if-no-files-found: error
           path: |
-            desktop-marketing/release/*.exe
+            desktop-marketing/release/Marketing-Diario-Mult-Portas-1.0.1-Windows.exe
             desktop-marketing/release/SHA256.txt
-            desktop-marketing/test-results/*.png
+      - name: Guardar imagens de verificação
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: Marketing-Diario-Windows-1.0.1-QA
+          path: desktop-marketing/test-results/*.png
+
+  release:
+    needs: windows
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Baixar somente o executável aprovado
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: Marketing-Diario-Windows-1.0.1
+          path: release
+      - name: Conferir integridade do executável
+        working-directory: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          read -r expected filename < SHA256.txt
+          filename=${filename%$'\r'}
+          [[ "$expected" =~ ^[0-9a-f]{64}$ && "$filename" == 'Marketing-Diario-Mult-Portas-1.0.1-Windows.exe' ]]
+          actual=$(sha256sum -- 'Marketing-Diario-Mult-Portas-1.0.1-Windows.exe')
+          [[ "${actual%% *}" == "$expected" ]]
       - name: Disponibilizar versão testada
-        shell: pwsh
+        working-directory: release
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_COMMIT: ${{ github.sha }}
         run: |
-          gh release create marketing-desktop-v1.0.0 'release/Marketing-Diario-Mult-Portas-1.0.0-Windows.exe' 'release/SHA256.txt' --target '${{ github.sha }}' --title 'Marketing Diário para Windows 1.0.0' --notes 'Aplicativo portátil para Windows 10/11 de 64 bits. Use o mesmo login do site. Inclui seis contadores, histórico, relatório sem data, proteção local pelo Windows e sincronização por usuário. O login inicial e a sincronização precisam de internet.'
+          set -euo pipefail
+          gh release create marketing-desktop-v1.0.1 'Marketing-Diario-Mult-Portas-1.0.1-Windows.exe' 'SHA256.txt' --repo "$GH_REPO" --target "$RELEASE_COMMIT" --title 'Marketing Diário para Windows 1.0.1' --notes 'Aplicativo portátil para Windows 10/11 de 64 bits. Atualização de segurança. Use o mesmo login do site. Inclui seis contadores, histórico, relatório sem data, proteção local pelo Windows e sincronização por usuário. O login inicial e a sincronização precisam de internet.'

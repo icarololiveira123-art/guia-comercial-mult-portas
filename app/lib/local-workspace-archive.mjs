@@ -4,8 +4,16 @@ export function businessDay(value = new Date()) {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(value));
 }
 
-export async function keepLocalWorkspace(userId, snapshot, { storage = globalThis.localStorage, database = globalThis.indexedDB } = {}) {
+export async function keepLocalWorkspace(userId, snapshot, { storage, database } = {}) {
   if (!Number.isSafeInteger(userId) || userId < 1 || !snapshot?.state) return false;
+  // Privacy policies may reject the global getter itself, before any storage
+  // method runs. Resolve each backend independently so one cannot block the other.
+  if (storage === undefined) {
+    try { storage = globalThis.localStorage; } catch { storage = null; }
+  }
+  if (database === undefined) {
+    try { database = globalThis.indexedDB; } catch { database = null; }
+  }
   const updatedAt = snapshot.updatedAt ?? new Date().toISOString();
   const day = businessDay(updatedAt);
   const value = { ...snapshot, userId, day, updatedAt };
@@ -43,7 +51,10 @@ export async function keepLocalWorkspace(userId, snapshot, { storage = globalThi
   } catch { return stored; }
 }
 
-export async function keepLocalQuotes(userId, records, database = globalThis.indexedDB) {
+export async function keepLocalQuotes(userId, records, database) {
+  if (database === undefined) {
+    try { database = globalThis.indexedDB; } catch { database = null; }
+  }
   if (!database || !Number.isSafeInteger(userId) || userId < 1 || !records.length) return false;
   try {
     await new Promise((resolve, reject) => {

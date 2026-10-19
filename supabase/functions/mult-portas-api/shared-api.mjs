@@ -17,6 +17,14 @@ const METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE"]);
 const PASSWORD_VERSION = "pbkdf2-sha256-v1";
 const PASSWORD_ITERATIONS = 210_000;
 const SESSION_HOURS = { user: 24, admin: 8 };
+const ISO_TIMESTAMP = /^[1-9]\d{3}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d{1,6})?(?:Z|[+-](?:0\d|1[0-4]):[0-5]\d)$/;
+
+// Check the calendar without reserializing: Postgres cursor boundaries retain
+// their original microseconds, which JavaScript Date would round to milliseconds.
+function validTimestamp(value) {
+  return typeof value === "string" && ISO_TIMESTAMP.test(value)
+    && validQuoteDate(value.slice(0, 10)) && Number.isFinite(Date.parse(value));
+}
 
 class ApiError extends Error {
   constructor(status, message, extra = {}) {
@@ -272,7 +280,7 @@ export function createSharedApi({ store, accessPassword = "", allowedOrigins = [
     catch { throw new ApiError(400, "O progresso enviado contém dados inválidos."); }
   }
 
-  async function dispatch(request, route, clock, ingress) {
+  async function dispatch(request, route, clock, ingress, trustedIngress) {
     const method = request.method;
     if (route === "/api/health" && method === "GET") return { value: { ok: true, apiVersion: 1 } };
     if (route === "/api/auth/admin/status" && method === "GET") return { value: { configured: Boolean(await accessProof()) } };
@@ -286,9 +294,12 @@ export function createSharedApi({ store, accessPassword = "", allowedOrigins = [
       return { value: { ok: true } };
     }
     if (route === "/api/auth/login" && method === "POST") {
-      await rate(`login-ingress:${ingress}`, 60, 600, clock);
       const body = await readJson(request, AUTH_BYTES);
       if (typeof body.username !== "string" || !USERNAME.test(body.username.trim()) || typeof body.password !== "string" || !body.password || body.password.length > 120) throw new ApiError(400, "Informe usuário e senha válidos.");
+      // A low global login bucket lets one caller lock out every account. Only
+      // apply this limit when deployment supplies a trusted gateway identity;
+      // the generic ingress and per-account limits still apply in every mode.
+      if (trustedIngress) await rate(`login-ingress:${ingress}`, 60, 600, clock);
       const handle = normalUsername(body.username);
       await rate(`login-account:${handle}`, 10, 900, clock);
       if (handle === "admin") {
@@ -308,8 +319,10 @@ export function createSharedApi({ store, accessPassword = "", allowedOrigins = [
       return { value: await newSession("user", found.user, found.user.sessionVersion, clock) };
     }
     if (route === "/api/auth/register" && method === "POST") {
-      await rate(`register-ingress:${ingress}`, 12, 3_600, clock);
       const profile = parseProfile(await readJson(request, AUTH_BYTES));
+      // Valid signup attempts retain an aggregate abuse limit when no trusted
+      // gateway identity exists. Malformed profiles cannot consume that quota.
+      await rate(`register-ingress:${ingress}`, 12, 3_600, clock);
       const password = await makePasswordProof(profile.password);
       checkSignal(request);
       const created = await execute("create_user", { ...profile, password, createdAt: clock.toISOString() });
@@ -342,7 +355,7 @@ export function createSharedApi({ store, accessPassword = "", allowedOrigins = [
         if (id) payload.id = id;
         if (params.has("cursor")) {
           const parts = params.get("cursor").split("|");
-          if (parts.length !== 2 || !isQuoteId(parts[1]) || !/^\d{4}-\d{2}-\d{2}T[\d:.]+(?:Z|[+-]\d\d:\d\d)$/.test(parts[0]) || !Number.isFinite(Date.parse(parts[0]))) throw new ApiError(400, "A página do histórico é inválida.");
+          if (parts.length !== 2 || !isQuoteId(parts[1]) || !validTimestamp(parts[0])) throw new ApiError(400, "A página do histórico é inválida.");
           payload.cursorAt = parts[0]; payload.cursorId = parts[1];
         }
       } else {
@@ -356,7 +369,7 @@ export function createSharedApi({ store, accessPassword = "", allowedOrigins = [
         }
         if (action === "daily_quotes") {
           const capturedAt = params.get("capturedAt");
-          if (!capturedAt || capturedAt.length > 40 || !/^\d{4}-\d{2}-\d{2}T[\d:.]+(?:Z|[+-]\d\d:\d\d)$/.test(capturedAt) || !validQuoteDate(capturedAt.slice(0, 10)) || !Number.isFinite(Date.parse(capturedAt))) throw new ApiError(400, "A versão do fechamento é inválida.");
+          if (!validTimestamp(capturedAt)) throw new ApiError(400, "A versão do fechamento é inválida.");
           payload.capturedAt = capturedAt;
         }
       }
@@ -391,8 +404,7 @@ export function createSharedApi({ store, accessPassword = "", allowedOrigins = [
         let cursor = {};
         if (params.has("cursor")) {
           const parts = params.get("cursor").split("|");
-          const iso = /^[1-9]\d{3}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d{1,6})?(?:Z|[+-](?:0\d|1[0-4]):[0-5]\d)$/;
-          if (parts.length !== 2 || !isQuoteId(parts[1]) || !iso.test(parts[0]) || !validQuoteDate(parts[0].slice(0, 10)) || !Number.isFinite(Date.parse(parts[0]))) throw new ApiError(400, "A página de pedidos é inválida.");
+          if (parts.length !== 2 || !isQuoteId(parts[1]) || !validTimestamp(parts[0])) throw new ApiError(400, "A página de pedidos é inválida.");
           cursor = { cursorAt: parts[0], cursorId: parts[1] };
         }
         action = "quote_list"; payload = { ...payload, scope, filter, search, ...cursor };
@@ -599,10 +611,11 @@ export function createSharedApi({ store, accessPassword = "", allowedOrigins = [
       // Never trust an arbitrary X-Forwarded-For sent by a client. Deployments
       // without a documented trusted gateway address share an aggregate bucket;
       // separate normalized account buckets still protect every login.
-      const trusted = typeof getTrustedClientIp === "function" ? getTrustedClientIp(request) : "aggregate";
-      const ingress = typeof trusted === "string" && trusted.length <= 200 ? trusted : "aggregate";
+      const trusted = typeof getTrustedClientIp === "function" ? getTrustedClientIp(request) : null;
+      const trustedIngress = typeof trusted === "string" && trusted.trim().length > 0 && trusted.length <= 200;
+      const ingress = trustedIngress ? trusted : "aggregate";
       await rate(`ingress:${ingress}`, 1_200, 60, clock);
-      const result = await dispatch(request, route, clock, ingress);
+      const result = await dispatch(request, route, clock, ingress, trustedIngress);
       return response(result.value, result.status ?? 200);
     } catch (error) {
       if (error instanceof ApiError) return response({ error: error.message, ...error.extra }, error.status);

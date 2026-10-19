@@ -1,6 +1,7 @@
 import { digest, getSessionUser } from "../auth/_lib";
 import { rejectUntrustedMutation } from "../_security";
 import { CUSTOMER_ROLE_CONTRACT, sanitizeCustomerReply } from "./customer-policy.mjs";
+import { readLimitedRequestText, RequestBodyLimitError } from "../_request-body";
 
 type RuntimeEnv = {
   OPENAI_API_KEY?: string;
@@ -122,11 +123,6 @@ function pruneCoachUsage(now: number) {
   for (const [userId, entry] of coachUsage) {
     if (now - entry.startedAt >= COACH_WINDOW_MS) coachUsage.delete(userId);
   }
-  while (coachUsage.size >= MAX_COACH_RATE_KEYS) {
-    const oldestUserId = coachUsage.keys().next().value as number | undefined;
-    if (oldestUserId === undefined) break;
-    coachUsage.delete(oldestUserId);
-  }
 }
 
 function consumeCoachQuota(userId: number) {
@@ -134,6 +130,13 @@ function consumeCoachQuota(userId: number) {
   pruneCoachUsage(now);
   const current = coachUsage.get(userId);
   if (!current || now - current.startedAt >= COACH_WINDOW_MS) {
+    if (coachUsage.size >= MAX_COACH_RATE_KEYS) {
+      let retryMs = COACH_WINDOW_MS;
+      for (const entry of coachUsage.values()) {
+        retryMs = Math.min(retryMs, COACH_WINDOW_MS - (now - entry.startedAt));
+      }
+      return Math.max(1, Math.ceil(retryMs / 1000));
+    }
     coachUsage.set(userId, { count: 1, startedAt: now });
     return null;
   }
@@ -209,16 +212,14 @@ async function handleCoach(request: Request) {
 
   let body: CoachRequest;
   try {
-    const contentLength = Number(request.headers.get("content-length") ?? 0);
-    if (Number.isFinite(contentLength) && contentLength > MAX_COACH_BODY_LENGTH) {
-      return jsonResponse({ error: "A conversa enviada ultrapassou o limite." }, 413);
-    }
-    const raw = await request.text();
-    if (raw.length > MAX_COACH_BODY_LENGTH) return jsonResponse({ error: "A conversa enviada ultrapassou o limite." }, 413);
+    const raw = await readLimitedRequestText(request, MAX_COACH_BODY_LENGTH);
     const parsed = JSON.parse(raw) as unknown;
     if (!isRecord(parsed)) return jsonResponse({ error: "Corpo inválido." }, 400);
     body = parsed as CoachRequest;
-  } catch {
+  } catch (error) {
+    if (error instanceof RequestBodyLimitError) {
+      return jsonResponse({ error: "A conversa enviada ultrapassou o limite." }, 413);
+    }
     return jsonResponse({ error: "Corpo inválido." }, 400);
   }
 

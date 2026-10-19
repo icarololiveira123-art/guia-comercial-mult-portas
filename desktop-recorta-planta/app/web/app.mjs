@@ -1,11 +1,12 @@
 import * as pdfjs from './vendor/pdfjs/pdf.min.mjs';
-import {clamp,prepareInk,detectPlans,expandRect} from './detector.mjs';
-import {createCroppedPdf} from './pdf-output.mjs';
+import {clamp,prepareInk,detectPlans,expandRect,rectToPdf} from './detector.mjs';
+import {createCroppedPdf,createRasterizedPdf} from './pdf-output.mjs';
 import {pdfTextWords,ocrWords} from './text-input.mjs';
+import {LIMITS,checkPageCount,checkTextContent,withinTime} from './processing-limits.mjs';
 
 pdfjs.GlobalWorkerOptions.workerSrc=new URL('./vendor/pdfjs/pdf.worker.min.mjs',import.meta.url).href;
 const $=id=>document.getElementById(id);
-const state={pdf:null,bytes:null,file:null,page:1,results:[],selected:null,view:null,canvas:null,job:0,busy:false,draw:false,renderId:0,worker:null,workerPromise:null,ocrErrors:0};
+const state={pdf:null,loadingTask:null,renderTasks:new Set(),bytes:null,file:null,page:1,results:[],selected:null,view:null,canvas:null,job:0,busy:false,draw:false,renderId:0,worker:null,workerPromise:null,workerGeneration:0,ocrErrors:0};
 const tick=()=>new Promise(resolve=>requestAnimationFrame(resolve));
 let toastTimer,installPrompt;
 
@@ -24,7 +25,7 @@ window.addEventListener('drop',e=>e.preventDefault());
 
 function busy(value){
   state.busy=value;document.body.classList.toggle('busy',value);$('progressArea').hidden=!value;
-  for(const id of ['newFile','drawMode','resetCrop','ocrButton','pageSelect','previousPage','nextPage','downloadAll','margin','zoomButton'])$(id).disabled=value;
+  for(const id of ['newFile','drawMode','resetCrop','ocrButton','pageSelect','previousPage','nextPage','downloadAll','margin','zoomButton','exportMode'])$(id).disabled=value;
   $('downloadButton').disabled=value||!currentSelection();
   if(!value&&state.pdf){$('previousPage').disabled=state.page===1;$('nextPage').disabled=state.page===state.pdf.numPages;}
   renderResults();
@@ -35,7 +36,7 @@ function setStatus(text){$('documentStatus').textContent=text;}
 async function openFile(file){
   if(state.busy)return;
   if(!/\.pdf$/i.test(file.name)&&file.type!=='application/pdf'){error('Selecione um arquivo com a extensão .pdf.','Esse arquivo não é um PDF');return;}
-  if(file.size>100*1024*1024){error('Este arquivo tem mais de 100 MB. Divida o PDF em arquivos menores para continuar.','O PDF é muito grande');return;}
+  if(file.size>LIMITS.fileBytes){error('Este arquivo tem mais de 100 MB. Divida o PDF em arquivos menores para continuar.','O PDF é muito grande');return;}
   const job=++state.job;
   busy(true);$('workspace').hidden=false;$('welcome').hidden=true;$('newFile').hidden=false;
   $('fileName').textContent=file.name;$('fileName').title=file.name;
@@ -45,48 +46,73 @@ async function openFile(file){
   $('selection').hidden=true;$('pdfCanvas').width=1;$('pdfCanvas').height=1;$('cropPreview').width=1;$('cropPreview').height=1;
   try{
     const bytes=new Uint8Array(await file.arrayBuffer());
+    if(job!==state.job)return;
     const header=new TextDecoder('latin1').decode(bytes.slice(0,1024));
     if(!header.includes('%PDF-'))throw new Error('O arquivo não contém um PDF válido. Tente exportá-lo novamente no programa de origem.');
-    if(state.pdf)await state.pdf.destroy();
-    const task=pdfjs.getDocument({data:bytes.slice(),cMapUrl:new URL('./vendor/pdfjs/cmaps/',import.meta.url).href,cMapPacked:true,standardFontDataUrl:new URL('./vendor/pdfjs/standard_fonts/',import.meta.url).href,wasmUrl:new URL('./vendor/pdfjs/wasm/',import.meta.url).href,isEvalSupported:false});
+    if(state.pdf)await state.pdf.loadingTask.destroy();
+    if(job!==state.job)return;
+    state.pdf=null;
+    const task=pdfjs.getDocument({data:bytes.slice(),cMapUrl:new URL('./vendor/pdfjs/cmaps/',import.meta.url).href,cMapPacked:true,standardFontDataUrl:new URL('./vendor/pdfjs/standard_fonts/',import.meta.url).href,wasmUrl:new URL('./vendor/pdfjs/wasm/',import.meta.url).href,isEvalSupported:false,enableScripting:false,maxImageSize:LIMITS.imagePixels,canvasMaxAreaInBytes:32*1024*1024});
+    state.loadingTask=task;
     task.onPassword=()=>{task.destroy();error('Este PDF é protegido por senha. Exporte uma cópia sem senha e abra essa cópia.','PDF protegido por senha');};
-    state.pdf=await task.promise;if(job!==state.job)return;
+    const pdf=await withinTime(task.promise,LIMITS.loadMs,()=>{void task.destroy().catch(()=>{});});
+    if(job!==state.job){await pdf.loadingTask.destroy();return;}
+    state.loadingTask=null;
+    state.pdf=pdf;
+    checkPageCount(pdf.numPages);
     state.bytes=bytes;state.file=file;state.page=1;
     $('fileMeta').textContent=`${state.pdf.numPages} ${state.pdf.numPages===1?'página':'páginas'} · ${(file.size/1024/1024).toLocaleString('pt-BR',{maximumFractionDigits:1})} MB`;
     const options=Array.from({length:state.pdf.numPages},(_,i)=>{const o=document.createElement('option');o.value=i+1;o.textContent=`Página ${i+1} de ${state.pdf.numPages}`;return o;});
     $('pageSelect').replaceChildren(...options);
     await showPage(1);
-    await analyzePages(Array.from({length:state.pdf.numPages},(_,i)=>i+1),job);
+    const scanned=Math.min(state.pdf.numPages,LIMITS.automaticPages);
+    await analyzePages(Array.from({length:scanned},(_,i)=>i+1),job);
+    if(job===state.job&&scanned<state.pdf.numPages)toast(`Análise automática limitada às primeiras ${scanned} páginas. Nas demais, selecione a página e use Ler imagem ou desenhe o recorte.`);
   }catch(e){
     if(job!==state.job)return;
     console.error('Falha ao abrir PDF:',e);
-    state.pdf=null;state.bytes=null;state.file=null;
+    if(state.loadingTask){void state.loadingTask.destroy().catch(()=>{});state.loadingTask=null;}
+    if(state.pdf){void state.pdf.loadingTask.destroy().catch(()=>{});state.pdf=null;}
+    state.bytes=null;state.file=null;
     $('workspace').hidden=true;$('welcome').hidden=false;$('newFile').hidden=true;
-    if(!$('errorDialog').open)error(e.name==='PasswordException'?'Este PDF é protegido por senha. Envie uma cópia desbloqueada.':e.message?.includes('PDF válido')?e.message:'Não consegui ler este arquivo. Verifique se o PDF abre normalmente e tente uma cópia exportada novamente.');
+    if(!$('errorDialog').open)error(e.name==='PasswordException'?'Este PDF é protegido por senha. Envie uma cópia desbloqueada.':e.name==='TimeoutError'||/PDF válido|até \d+ páginas|texto demais/.test(e.message||'')?e.message:'Não consegui ler este arquivo. Verifique se o PDF abre normalmente e tente uma cópia exportada novamente.');
   }finally{if(job===state.job){busy(false);updateSelection();}}
 }
 
 async function renderPage(pageNumber,longSide=1800){
-  const page=await state.pdf.getPage(pageNumber),natural=page.getViewport({scale:1});
+  const pdfDocument=state.pdf,job=state.job;
+  const page=await withinTime(pdfDocument.getPage(pageNumber),LIMITS.renderMs),natural=page.getViewport({scale:1});
+  if(pdfDocument!==state.pdf||job!==state.job)throw new DOMException('Análise interrompida','AbortError');
+  if(!Number.isFinite(natural.width+natural.height)||natural.width<=0||natural.height<=0)throw new Error('A página tem dimensões inválidas.');
   const scale=Math.min(longSide/Math.max(natural.width,natural.height),3);
   const viewport=page.getViewport({scale});
   const canvas=document.createElement('canvas');canvas.width=Math.ceil(viewport.width);canvas.height=Math.ceil(viewport.height);
   const context=canvas.getContext('2d',{willReadFrequently:true});
-  await page.render({canvasContext:context,viewport,background:'rgb(255,255,255)'}).promise;
+  const task=page.render({canvasContext:context,viewport,background:'rgb(255,255,255)'});
+  state.renderTasks.add(task);
+  try{await withinTime(task.promise,LIMITS.renderMs,()=>task.cancel());}
+  catch(error){canvas.width=1;canvas.height=1;throw error;}
+  finally{state.renderTasks.delete(task);}
   return {page,canvas,viewport};
 }
 async function getOCRWorker(){
   if(state.worker)return state.worker;
   if(state.workerPromise)return state.workerPromise;
   if(!window.Tesseract)throw new Error('O leitor de imagens ainda não carregou. Atualize a página e tente novamente.');
+  const generation=state.workerGeneration;
   state.workerPromise=window.Tesseract.createWorker('eng',1,{
     workerPath:new URL('./vendor/ocr/worker.min.js',import.meta.url).href,
     corePath:new URL('./vendor/ocr/core',import.meta.url).href,
     langPath:new URL('./vendor/ocr/lang',import.meta.url).href,
     cacheMethod:'none',workerBlobURL:false,
     logger:m=>{if(state.busy&&m.status==='recognizing text')$('progressText').textContent=`Lendo os títulos da imagem… ${Math.round(m.progress*100)}%`;}
-  }).then(async worker=>{await worker.setParameters({tessedit_pageseg_mode:'11',preserve_interword_spaces:'1'});state.worker=worker;state.workerPromise=null;return worker;}).catch(e=>{state.workerPromise=null;throw e;});
-  return state.workerPromise;
+  }).then(async worker=>{
+    if(generation!==state.workerGeneration){await worker.terminate();throw new DOMException('Análise interrompida','AbortError');}
+    await worker.setParameters({tessedit_pageseg_mode:'11',preserve_interword_spaces:'1'});
+    if(generation!==state.workerGeneration){await worker.terminate();throw new DOMException('Análise interrompida','AbortError');}
+    state.worker=worker;state.workerPromise=null;return worker;
+  }).catch(e=>{if(generation===state.workerGeneration)state.workerPromise=null;throw e;});
+  return withinTime(state.workerPromise,LIMITS.ocrMs,()=>{if(generation===state.workerGeneration){state.workerGeneration++;state.workerPromise=null;}});
 }
 
 async function recognizePage(pageNumber,lowRender,job){
@@ -95,7 +121,10 @@ async function recognizePage(pageNumber,lowRender,job){
   const high=await renderPage(pageNumber,navigator.deviceMemory&&navigator.deviceMemory<4?3200:4400);
   try{
     if(job!==state.job)throw new DOMException('Análise interrompida','AbortError');
-    const {data}=await worker.recognize(high.canvas,{}, {text:true,blocks:true});
+    const {data}=await withinTime(worker.recognize(high.canvas,{}, {text:true,blocks:true}),LIMITS.ocrMs,()=>{
+      if(state.worker===worker){state.worker=null;state.workerGeneration++;}
+      void worker.terminate().catch(()=>{});
+    });
     const sx=lowRender.canvas.width/high.canvas.width,sy=lowRender.canvas.height/high.canvas.height;
     return ocrWords(data.blocks).map(w=>({...w,x:w.x*sx,y:w.y*sy,w:w.w*sx,h:w.h*sy}));
   }finally{high.canvas.width=1;high.canvas.height=1;}
@@ -109,7 +138,8 @@ async function analyzePages(pages,job,forceOCR=false){
     progress('Analisando projeto',`Página ${number} de ${state.pdf.numPages} · procurando a planta baixa`,(i+.2)/pages.length);
     const rendered=await renderPage(number);
     if(job!==state.job){rendered.canvas.width=1;break;}
-    const content=await rendered.page.getTextContent();
+    const content=await withinTime(rendered.page.getTextContent(),LIMITS.renderMs);
+    checkTextContent(content);
     const words=pdfTextWords(pdfjs,content,rendered.viewport);
     const context=rendered.canvas.getContext('2d',{willReadFrequently:true});
     const ink=prepareInk(context.getImageData(0,0,rendered.canvas.width,rendered.canvas.height));
@@ -129,6 +159,7 @@ async function analyzePages(pages,job,forceOCR=false){
     for(let j=0;j<plans.length;j++)state.results.push({...plans[j],id:`p${number}-${j}`,pageNumber:number,rect:{...plans[j].baseRect},margin:0});
     rendered.canvas.width=1;rendered.canvas.height=1;renderResults();await tick();
   }
+  if(job!==state.job)return;
   if(state.results.length){state.selected=state.results[0].id;await showPage(state.results[0].pageNumber);}
   else if(state.pdf)await showPage(state.page);
   if(!canceled){
@@ -142,9 +173,16 @@ async function analyzePages(pages,job,forceOCR=false){
 
 $('cancelScan').onclick=async()=>{
   ++state.job;
+  ++state.workerGeneration;
+  ++state.renderId;
+  for(const task of state.renderTasks)task.cancel();
+  state.renderTasks.clear();
+  if(state.loadingTask){const task=state.loadingTask;state.loadingTask=null;void task.destroy().catch(()=>{});}
+  state.workerPromise=null;
   if(state.worker){const w=state.worker;state.worker=null;state.workerPromise=null;await w.terminate().catch(()=>{});}
   busy(false);setStatus('Análise interrompida');
   if(state.results.length){state.selected=state.results[0].id;await showPage(state.results[0].pageNumber);}else if(state.pdf)await showPage(state.page);
+  else{$('workspace').hidden=true;$('welcome').hidden=false;$('newFile').hidden=true;}
   toast('Análise interrompida. Os recortes já encontrados estão disponíveis.');
 };
 
@@ -176,7 +214,9 @@ async function showPage(number){
   if(!state.pdf)return;
   const renderId=++state.renderId;
   state.page=clamp(Number(number),1,state.pdf.numPages);$('pageSelect').value=state.page;
-  const rendered=await renderPage(state.page,2400);
+  let rendered;
+  try{rendered=await renderPage(state.page,2400);}
+  catch(e){if(e.name!=='AbortError'&&e.name!=='RenderingCancelledException')error(e.name==='TimeoutError'?e.message:'Não foi possível mostrar esta página. Tente uma cópia simplificada do PDF.','Página indisponível');return;}
   if(renderId!==state.renderId){rendered.canvas.width=1;return;}
   const main=$('pdfCanvas');main.width=rendered.canvas.width;main.height=rendered.canvas.height;
   main.getContext('2d').drawImage(rendered.canvas,0,0);rendered.canvas.width=1;
@@ -279,18 +319,47 @@ $('ocrButton').onclick=async()=>{
 async function download(all=false){
   if(state.busy||!state.bytes)return;
   const selected=all?state.results:[currentSelection()];if(!selected[0])return;
-  const button=$(all?'downloadAll':'downloadButton');button.disabled=true;
+  const button=$(all?'downloadAll':'downloadButton'),job=state.job;
+  const sanitized=$('exportMode').value==='sanitized';
+  busy(true);button.disabled=true;
+  progress('Preparando PDF',sanitized?'Criando imagens somente das áreas selecionadas…':'Preservando linhas e texto, com ações desativadas…',.1);
   try{
     const selections=[];
     for(const s of selected){const page=await state.pdf.getPage(s.pageNumber);const viewport=page.getViewport({scale:1});selections.push({pageNumber:s.pageNumber,viewport,rect:effectiveRect(s,viewport)});}
-    const bytes=await createCroppedPdf(window.PDFLib,state.bytes,selections);
+    const bytes=sanitized?await createRasterizedPdf(window.PDFLib,selections,renderSelection):await createCroppedPdf(window.PDFLib,state.bytes,selections);
+    if(job!==state.job)return;
     const blob=new Blob([bytes],{type:'application/pdf'}),url=URL.createObjectURL(blob),a=document.createElement('a');
     a.href=url;const base=state.file.name.replace(/\.pdf$/i,'').replace(/[^\p{L}\p{N} _.-]/gu,'').slice(0,90)||'projeto';
-    a.download=`${base}_${all?'plantas':'planta_p'+state.page}.pdf`;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
+    a.download=`${base}_${all?'plantas':'planta_p'+state.page}${sanitized?'_sanitizada':''}.pdf`;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
     toast(`${all?'Recortes prontos':'Planta pronta'}. Confira o download no navegador.`);
-  }catch(e){console.error('Exportação:',e);error(/encrypt/i.test(e.message)?'O PDF está protegido. Abra uma cópia sem senha para exportar o recorte.':'Não consegui gerar o PDF. Confira a seleção e tente novamente.','Não foi possível baixar o recorte');}
-  finally{button.disabled=false;}
+  }catch(e){if(job!==state.job)return;console.error('Exportação:',e);error(/encrypt/i.test(e.message)?'O PDF está protegido. Abra uma cópia sem senha para exportar o recorte.':e.name==='TimeoutError'||/Exporte até/.test(e.message)?e.message:'Não consegui gerar o PDF. Confira a seleção e tente novamente.','Não foi possível baixar o recorte');}
+  finally{if(job===state.job)busy(false);}
 }
+
+async function renderSelection(selection){
+  const pdfDocument=state.pdf,job=state.job;
+  const page=await withinTime(pdfDocument.getPage(selection.pageNumber),LIMITS.renderMs);
+  if(pdfDocument!==state.pdf||job!==state.job)throw new DOMException('Análise interrompida','AbortError');
+  const box=rectToPdf(selection.viewport,selection.rect);
+  const scale=Math.min(150/72,LIMITS.exportLongSide/Math.max(box.w,box.h));
+  const viewport=page.getViewport({scale});
+  const x=selection.rect.x*viewport.width,y=selection.rect.y*viewport.height;
+  const canvas=document.createElement('canvas');
+  canvas.width=Math.max(1,Math.ceil(selection.rect.w*viewport.width));
+  canvas.height=Math.max(1,Math.ceil(selection.rect.h*viewport.height));
+  try{
+    const task=page.render({canvasContext:canvas.getContext('2d'),viewport,transform:[1,0,0,1,-x,-y],background:'rgb(255,255,255)'});
+    state.renderTasks.add(task);
+    try{await withinTime(task.promise,LIMITS.renderMs,()=>task.cancel());}finally{state.renderTasks.delete(task);}
+    if(pdfDocument!==state.pdf||job!==state.job)throw new DOMException('Análise interrompida','AbortError');
+    const blob=await new Promise((resolve,reject)=>canvas.toBlob(value=>value?resolve(value):reject(new Error('Não foi possível gerar a imagem.')),'image/png'));
+    return {pngBytes:new Uint8Array(await blob.arrayBuffer()),width:viewport.width*selection.rect.w/scale,height:viewport.height*selection.rect.h/scale};
+  }finally{canvas.width=1;canvas.height=1;}
+}
+
+$('exportMode').onchange=()=>{
+  $('exportSecurityHint').textContent=$('exportMode').value==='sanitized'?'Sanitizado: salva só a área visível como imagem, até 150 dpi. Remove conteúdo externo e elementos ativos; linhas e textos deixam de ser vetoriais.':'Vetorial: mantém linhas e texto. Ações são desativadas, mas informações fora do recorte continuam no arquivo. Para removê-las, escolha Sanitizado.';
+};
 $('downloadButton').onclick=()=>download(false);$('downloadAll').onclick=()=>download(true);
 
 async function createDemo(){

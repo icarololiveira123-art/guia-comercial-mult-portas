@@ -121,3 +121,89 @@ test('pending changes cannot be reassigned to another account', async () => {
   engine.activate({ id: 9002, username: 'outro', displayName: 'Outra pessoa', branch: 'São Carlos' });
   assert.equal(count(engine, 'phone'), 0); assert.equal(engine.pendingCount(), 0); assert.equal(vault.read().accounts['9001'].pending[0].value, 11);
 });
+
+test('an open offline app locks expired sessions before exposing data or accepting operations', async t => {
+  const operations = [
+    ['view', engine => { const view = engine.view(); assert.equal(view.user, null); assert.deepEqual(view.marketing, { days: [] }); }],
+    ['account', engine => assert.equal(engine.account(), null)],
+    ['marketing', engine => assert.deepEqual(engine.currentMarketing(), { days: [] })],
+    ['edit', engine => assert.throws(() => engine.edit({ date, field: 'phone', value: 99 }), /Aguarde|sessão/)],
+    ['reset', engine => assert.throws(() => engine.reset(date), /Aguarde|sessão/)],
+    ['report', engine => assert.throws(() => engine.report(date), /Entre na sua conta/)],
+    ['sync', engine => engine.sync()],
+    ['resolve', engine => engine.resolveConflict('local')],
+  ];
+  for (const [name, operation] of operations) await t.test(name, async () => {
+    let now = new Date(`${date}T14:00:00Z`); let offline = false; let requests = 0;
+    const api = createMockApi(); const changes = [];
+    const fetch = async (...args) => {
+      requests++;
+      if (offline) throw new Error('simulated offline');
+      const response = await api(...args);
+      if (new URL(args[0]).pathname.endsWith('/api/auth/login') && response.ok) {
+        return Response.json({ ...await response.json(), expiresAt: `${date}T14:01:00Z` });
+      }
+      return response;
+    };
+    const { engine, vault } = await setup({ api: fetch, options: { now: () => now, onChange: view => changes.push(view) } });
+    engine.edit({ date, field: 'phone', value: 12 });
+    offline = true; await engine.sync(); assert.equal(engine.status, 'offline');
+    const accounts = vault.read().accounts; const remote = api.readState(); const sent = requests;
+    now = new Date(`${date}T14:01:00Z`);
+    await operation(engine);
+    assert.equal(engine.user, null);
+    assert.equal(engine.status, 'signed-out');
+    assert.equal(engine.authRaw, null);
+    assert.equal(vault.read().authRaw, null);
+    assert.deepEqual(vault.read().accounts, accounts);
+    assert.deepEqual(api.readState(), remote);
+    assert.equal(requests, sent, 'no request is sent with an expired local session');
+    assert.equal(changes.at(-1).user, null, 'the visible workspace is locked immediately');
+    assert.deepEqual(changes.at(-1).marketing, { days: [] });
+  });
+});
+
+test('signing in again after local expiration recovers and syncs the same protected pending edits', async () => {
+  let now = new Date(`${date}T14:00:00Z`); const api = createMockApi();
+  const fetch = async (...args) => {
+    const response = await api(...args);
+    if (new URL(args[0]).pathname.endsWith('/api/auth/login') && response.ok) {
+      return Response.json({ ...await response.json(), expiresAt: new Date(now.getTime() + 60_000).toISOString() });
+    }
+    return response;
+  };
+  const { engine, vault } = await setup({ api: fetch, options: { now: () => now } });
+  engine.edit({ date, field: 'phone', value: 12 });
+  now = new Date(`${date}T14:01:00Z`);
+  assert.equal(engine.view().user, null);
+  assert.equal(vault.read().accounts['9001'].pending[0].value, 12);
+  await engine.login(credentials);
+  assert.equal(engine.status, 'synced');
+  assert.equal(count(engine, 'phone'), 12);
+  assert.equal(api.readState().marketingDaily.days[0].phone, 12);
+  assert.equal(engine.pendingCount(), 0);
+});
+
+test('expiration during an in-flight read cannot send queued edits or consume their local copy', async () => {
+  let now = new Date(`${date}T14:00:00Z`); let delayRead = false; let release; let started; let writes = 0;
+  const entered = new Promise(resolve => { started = resolve; }); const api = createMockApi();
+  const fetch = async (...args) => {
+    const route = new URL(args[0]).pathname;
+    if (delayRead && route.endsWith('/api/data') && args[1].method === 'GET') {
+      delayRead = false; started(); await new Promise(resolve => { release = resolve; });
+    }
+    if (args[1].method === 'PUT') writes++;
+    const response = await api(...args);
+    if (route.endsWith('/api/auth/login') && response.ok) return Response.json({ ...await response.json(), expiresAt: `${date}T14:01:00Z` });
+    return response;
+  };
+  const { engine, vault } = await setup({ api: fetch, options: { now: () => now } });
+  engine.edit({ date, field: 'phone', value: 7 }); const accounts = vault.read().accounts;
+  delayRead = true; const syncing = engine.sync(); await entered;
+  now = new Date(`${date}T14:01:00Z`); release(); await syncing;
+  assert.equal(engine.user, null);
+  assert.equal(engine.status, 'signed-out');
+  assert.equal(writes, 0);
+  assert.deepEqual(vault.read().accounts, accounts);
+  assert.deepEqual(engine.view().marketing, { days: [] });
+});

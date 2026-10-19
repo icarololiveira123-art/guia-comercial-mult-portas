@@ -42,6 +42,15 @@ export function rejectUntrustedMutation(request: Request) {
   );
 }
 
+/** Database Error.message/name can contain SQL, bound values or credentials. */
+export function safeErrorDetails(error: unknown) {
+  const name = error instanceof TypeError ? "TypeError"
+    : error instanceof RangeError ? "RangeError"
+      : error instanceof SyntaxError ? "SyntaxError"
+        : error instanceof Error ? "Error" : "Unknown";
+  return { name };
+}
+
 export function withApiSecurityHeaders(response: Response) {
   const headers = new Headers(response.headers);
   headers.set("X-Content-Type-Options", "nosniff");

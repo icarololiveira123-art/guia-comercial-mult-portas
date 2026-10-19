@@ -1,7 +1,10 @@
+import {LIMITS} from './processing-limits.mjs';
+
 export const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
 export const normalize = s => (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
 
 export function groupWords(words) {
+  if(words.length>LIMITS.textItems)throw new Error('Esta página contém texto demais para uma análise segura. Exporte uma cópia simplificada ou selecione outra página.');
   const rows = [];
   for (const w of [...words].filter(w => w.text?.trim() && w.w > 0 && w.h > 0).sort((a,b) => a.y-b.y || a.x-b.x)) {
     const mid = w.y + w.h/2;

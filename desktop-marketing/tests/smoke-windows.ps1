@@ -1,5 +1,5 @@
 $ErrorActionPreference = 'Stop'
-$exe = Join-Path $PSScriptRoot '../release/Marketing-Diario-Mult-Portas-1.0.0-Windows.exe'
+$exe = Join-Path $PSScriptRoot '../release/Marketing-Diario-Mult-Portas-1.0.1-Windows.exe'
 if (!(Test-Path $exe)) { throw 'O executável portátil não foi gerado.' }
 $process = Start-Process -FilePath $exe -PassThru
 try {
