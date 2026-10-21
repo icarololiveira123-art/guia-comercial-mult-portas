@@ -7,6 +7,7 @@ import { HomeWorkspace } from "./home-workspace";
 import { CatalogWorkspace } from "./catalog-workspace";
 import { MarketingDaily } from "./marketing-daily";
 import { QuoteRequests } from "./quote-requests";
+import { SiteAnnouncement } from "./site-announcement";
 import { normalizeMarketingDaily, type MarketingDailyState } from "./lib/marketing-daily.mjs";
 import { AccountCenter } from "./account-center";
 import { FollowUpRow } from "./followup-row";
@@ -3587,6 +3588,7 @@ export default function Home() {
   const firstName = authUser.displayName.trim().split(/\s+/)[0];
 
   return (
+    <>
     <main className="workspace-app" inert={authBusy || undefined}>
       <a className="workspace-skip" href="#workspace-main">Ir para o conteúdo</a>
       <header className="workspace-masthead">
@@ -4036,5 +4038,7 @@ export default function Home() {
       </section>
       {toast && <div className={`toast ${toast.kind}`} role={toast.kind === "error" ? "alert" : "status"} aria-live={toast.kind === "error" ? "assertive" : "polite"}>{toast.kind === "success" ? "✓" : toast.kind === "error" ? "!" : "i"} {toast.message}</div>}
     </main>
+    {!workspaceAccess && <SiteAnnouncement key={`site-announcement-${authUser.id}`} userId={authUser.id} storageScope={IS_SHARED_API ? sharedApiBaseUrl : LOCAL_STORAGE_MODE ? "local" : "server"} onOpenQuotes={() => navigate("quotes")} />}
+    </>
   );
 }
