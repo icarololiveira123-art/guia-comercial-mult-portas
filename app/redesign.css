@@ -1033,6 +1033,9 @@ body { background: var(--bg); color: var(--ink); font-family: Inter, ui-sans-ser
 .quote-record-top > div { min-width: 0; }
 .quote-record h3 { margin: 0; color: #254d3b; font-size: 16px; font-weight: 750; line-height: 1.5; overflow-wrap: anywhere; }
 .quote-record-top p { margin: 5px 0 0; color: var(--muted); font-size: 11px; line-height: 1.6; }
+.quote-record-top .quote-record-contact { display: flex; flex-wrap: wrap; gap: 4px 7px; color: #285449; font-size: 13px; font-weight: 650; }
+.quote-record-contact > span { color: var(--muted); font-size: 11px; font-weight: 500; }
+.quote-record-contact bdi { min-width: 0; overflow-wrap: anywhere; }
 .quote-badge { flex: 0 0 auto; padding: 5px 8px; border: 1px solid #ded0b6; border-radius: 4px; color: #7a6032; background: #f5eedf; font-size: 10px; font-weight: 700; }
 .quote-badge.sent { border-color: #b9d0af; color: #325d36; background: #e9f1df; }
 .quote-record-preview { display: -webkit-box; margin: 15px 0; color: #53634e; font-size: 12px; line-height: 1.7; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
