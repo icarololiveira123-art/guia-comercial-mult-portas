@@ -9,7 +9,7 @@ import {
 } from "./lib/quote-requests.mjs";
 import { formatQuoteAmount, parseQuoteAmount, QUOTE_AMOUNT_ERROR, quoteAmountInput } from "./lib/quote-amount.mjs";
 
-type Props = { userId: number; request: (path: string, init?: RequestInit) => Promise<Response>; active: boolean; liveUpdates?: boolean };
+type Props = { userId: number; seller: string; request: (path: string, init?: RequestInit) => Promise<Response>; active: boolean; liveUpdates?: boolean };
 type Draft = { id: string; baseRevision: number | null; fields: QuoteRequestFields; amountText: string; itemAmountTexts: Record<string, string>; mutationId: string; dirty: boolean; createdAt: string | null };
 type Counts = { total: number; pending: number; sent: number; archived: number };
 type ListReply = { requests: QuoteRequestRecord[]; counts: Counts; nextCursor: string | null };
@@ -61,7 +61,7 @@ function recordAmount(record: QuoteRequestRecord) {
   return `${formatQuoteAmount(record.amountCents)}${record.pricingMode === "items" && record.amountCents != null && record.items.some(item => item.unitAmountCents == null) ? " · parcial" : ""}`;
 }
 
-export function QuoteRequests({ userId, request, active, liveUpdates = false }: Props) {
+export function QuoteRequests({ userId, seller, request, active, liveUpdates = false }: Props) {
   const storageKey = `mult-portas-quote-draft-v2:${userId}`;
   const [draft, setDraft] = useState<Draft>(() => readDraft(storageKey));
   const [scope, setScope] = useState<"active" | "archived">("active");
@@ -268,7 +268,7 @@ export function QuoteRequests({ userId, request, active, liveUpdates = false }: 
     finally { if (mounted.current && generation === historyGeneration.current) setHistoryLoading(false); }
   }
   async function copy(record: QuoteRequestRecord) {
-    const summary = buildQuoteRequestSummary(record);
+    const summary = `Vendedor: ${seller.trim()}\n${buildQuoteRequestSummary(record)}`;
     try { await navigator.clipboard.writeText(summary); if (mounted.current) setFeedback("Resumo copiado. Cole na conversa do cliente."); }
     catch { if (mounted.current) { setManualCopy(summary); window.requestAnimationFrame(() => { summaryRef.current?.focus(); summaryRef.current?.select(); }); } }
   }

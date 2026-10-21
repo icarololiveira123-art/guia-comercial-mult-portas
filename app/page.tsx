@@ -4019,7 +4019,7 @@ export default function Home() {
           </div>
         )}
 
-        <QuoteRequests key={`quote-requests-${authUser.id}`} userId={authUser.id} request={apiFetch} active={section === "quotes"} liveUpdates={workspaceAccess} />
+        <QuoteRequests key={`quote-requests-${authUser.id}`} userId={authUser.id} seller={authUser.displayName} request={apiFetch} active={section === "quotes"} liveUpdates={workspaceAccess} />
 
         {section === "marketing" && <MarketingDaily key={authUser.id} seller={authUser.displayName} state={marketingDaily} onChange={setMarketingDaily} />}
 
