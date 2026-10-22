@@ -4,7 +4,7 @@ Aplicativo de computador para Windows 10/11 de 64 bits. Usa as contas e o servi�
 
 ## Usar
 
-1. Abra `Marketing-Diario-Mult-Portas-1.0.0-Windows.exe`.
+1. Abra `Marketing-Diario-Mult-Portas-1.0.1-Windows.exe`.
 2. Entre com o usuário e a senha cadastrados no site.
 3. Registre os seis contadores com `+`, `−` ou digitando o número.
 4. Clique em **Copiar resumo** e cole no WhatsApp. O texto não inclui a data.

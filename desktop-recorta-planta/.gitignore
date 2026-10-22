@@ -1,8 +1,8 @@
-node_modules
-release/
-test-results/
+node_modules/
 app/web/vendor/
 app/web/icon-192.png
 app/web/icon-512.png
 build/
-*.log
+release/
+test-results/
+tests/native-download*.pdf

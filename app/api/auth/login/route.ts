@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { employeeUsers } from "../../../../db/schema";
 import { ADMIN_PASSWORD, ADMIN_USERNAME, clearedAdminCookie, createAdminSession } from "../../admin/_lib";
-import { rejectUntrustedMutation } from "../../_security";
+import { rejectUntrustedMutation, safeErrorDetails } from "../../_security";
 import {
   clearAuthQuota,
   consumeLoginQuota,
@@ -27,7 +27,7 @@ export async function POST(request: Request) {
   try {
     return await handleLogin(request);
   } catch (error) {
-    console.error("auth_login_failed", { message: error instanceof Error ? error.message : String(error) });
+    console.error("auth_login_failed", safeErrorDetails(error));
     return Response.json({ error: "Não foi possível concluir o login. Tente novamente em alguns segundos." }, { status: 503 });
   }
 }
@@ -68,7 +68,7 @@ async function handleLogin(request: Request) {
     return Response.json({ error: "Usuário ou senha incorretos." }, { status: 401 });
   }
   if (passwordRequiresReset(user.passwordHash)) {
-    console.warn("auth_password_reset_required", { userId: user.id });
+    console.warn("auth_password_reset_required");
     return Response.json({ error: "Esta conta precisa que o administrador redefina a senha." }, { status: 409 });
   }
   if (!(await verifyPassword(password, user.passwordHash))) {
@@ -83,10 +83,7 @@ async function handleLogin(request: Request) {
     } catch (error) {
       // A manutenção do formato do hash não pode impedir uma senha válida de
       // abrir a conta. A próxima autenticação tentará a atualização novamente.
-      console.warn("auth_password_rehash_failed", {
-        userId: user.id,
-        message: error instanceof Error ? error.message : String(error),
-      });
+      console.warn("auth_password_rehash_failed", safeErrorDetails(error));
     }
   }
 

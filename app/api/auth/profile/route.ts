@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { employeeSessions, employeeUsers } from "../../../../db/schema";
-import { rejectUntrustedMutation } from "../../_security";
+import { rejectUntrustedMutation, safeErrorDetails } from "../../_security";
 import { readBoundedAuthJson } from "../_request-guard";
 import {
   createSession,
@@ -109,7 +109,7 @@ export async function PATCH(request: Request) {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (/unique|constraint/i.test(message)) return jsonResponse({ error: "Esse usuário já está cadastrado." }, 409);
-    console.error("employee_profile_update_failed", { message });
+    console.error("employee_profile_update_failed", safeErrorDetails(error));
     return jsonResponse({ error: "Não foi possível atualizar seu perfil." }, 503);
   }
 }

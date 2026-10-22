@@ -1,5 +1,6 @@
 import { getDb } from "../../../../db";
 import { employeeUsers } from "../../../../db/schema";
+import { safeErrorDetails } from "../../_security";
 
 function storageReason(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
@@ -15,7 +16,7 @@ export async function GET() {
     return Response.json({ ok: true }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     const reason = storageReason(error);
-    console.error("storage_health_failed", { reason, message: error instanceof Error ? error.message : String(error) });
+    console.error("storage_health_failed", { reason, ...safeErrorDetails(error) });
     return Response.json({ ok: false, reason }, { status: 503, headers: { "Cache-Control": "no-store" } });
   }
 }

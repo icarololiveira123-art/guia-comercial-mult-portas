@@ -1,6 +1,6 @@
 {
   "name": "recorta-planta-windows",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "Recorte de plantas baixas em PDFs digitais e escaneados, com processamento local.",
   "author": "Recorta Planta",
@@ -15,8 +15,8 @@
   "devDependencies": {
     "electron": "44.7.2",
     "electron-builder": "26.15.3",
-    "pdfjs-dist": "5.6.205",
     "pdf-lib": "1.17.1",
+    "pdfjs-dist": "6.4.299",
     "tesseract.js": "7.0.0"
   },
   "build": {
@@ -49,7 +49,7 @@
     },
     "portable": {
       "requestExecutionLevel": "user",
-      "unpackDirName": "recorta-planta-1.0.0"
+      "unpackDirName": "recorta-planta-1.0.1"
     },
     "electronLanguages": [
       "pt-BR",

@@ -60,8 +60,43 @@ exports.run=async window=>{
     window.webContents.executeJavaScript("document.getElementById('downloadButton').click()",true).catch(reject);
   });
   const download=await fs.readFile(target);assert.equal(download.subarray(0,5).toString(),'%PDF-');assert.ok(download.length>1000);console.log('NATIVE_DOWNLOAD_OK',download.length,'bytes');
+  await waitFor(window,"!document.body.classList.contains('busy')");
+  const exportNotice=await window.webContents.executeJavaScript(`(()=>{
+    const mode=document.getElementById('exportMode');mode.value='sanitized';mode.dispatchEvent(new Event('change',{bubbles:true}));
+    return document.getElementById('exportSecurityHint').textContent;
+  })()`);
+  assert.match(exportNotice,/150 dpi/);assert.match(exportNotice,/deixam de ser vetoriais/);
+  const sanitizedTarget=path.join(path.dirname(target),'native-download-sanitized.pdf');
+  await new Promise((resolve,reject)=>{
+    const timer=setTimeout(()=>reject(new Error('Download sanitizado não terminou')),30000);
+    window.webContents.session.once('will-download',(_event,item)=>{
+      item.setSavePath(sanitizedTarget);item.once('done',(_e,state)=>{clearTimeout(timer);state==='completed'?resolve():reject(new Error('Download sanitizado: '+state));});
+    });
+    window.webContents.executeJavaScript("document.getElementById('downloadButton').click()",true).catch(reject);
+  });
+  const sanitizedBytes=await fs.readFile(sanitizedTarget);
+  const {PDFDocument,PDFName}=require('pdf-lib');
+  const sanitizedDocument=await PDFDocument.load(sanitizedBytes),sanitizedPage=sanitizedDocument.getPage(0);
+  const imageResources=sanitizedPage.node.Resources().lookup(PDFName.of('XObject'));
+  assert.equal(sanitizedDocument.getPageCount(),1);
+  assert.equal(imageResources.keys().length,1);
+  assert.equal(sanitizedDocument.context.lookup(imageResources.get(imageResources.keys()[0])).dict.get(PDFName.of('Subtype')).toString(),'/Image');
+  assert.equal(sanitizedPage.node.lookup(PDFName.of('Annots'))?.size()||0,0);
+  console.log('NATIVE_SANITIZED_DOWNLOAD_OK',sanitizedBytes.length,'bytes');
+  await waitFor(window,"!document.body.classList.contains('busy')");
+  await window.webContents.executeJavaScript(`(async()=>{
+    const doc=await PDFLib.PDFDocument.create();for(let i=0;i<301;i++)doc.addPage([100,100]);
+    const file=new File([await doc.save()],'limite_sintetico.pdf',{type:'application/pdf'}),data=new DataTransfer();data.items.add(file);
+    const input=document.getElementById('fileInput');input.files=data.files;input.dispatchEvent(new Event('change',{bubbles:true}));
+  })()`);
+  await waitFor(window,"document.getElementById('errorDialog').open&&!document.body.classList.contains('busy')");
+  const limitMessage=await window.webContents.executeJavaScript("document.getElementById('errorMessage').textContent");
+  assert.match(limitMessage,/até 300 páginas/);
+  await window.webContents.executeJavaScript("document.getElementById('closeError').click();document.getElementById('demoButton').click()",true);
+  await waitFor(window,"!document.getElementById('workspace').hidden&&!document.body.classList.contains('busy')&&!document.getElementById('downloadButton').disabled");
+  console.log('NATIVE_PAGE_LIMIT_AND_RECOVERY_OK');
   assert.equal(errors.filter(e=>/content security policy|refused|not allowed/i.test(e)).length,0,errors.join('\n'));
-  const report={digital:first,pdf:output,ocr,scanned,adjustment,downloadBytes:download.length,errors,platform:process.platform,version:process.versions.electron};
+  const report={digital:first,pdf:output,ocr,scanned,adjustment,downloadBytes:download.length,sanitizedDownloadBytes:sanitizedBytes.length,pageLimitRecovered:true,errors,platform:process.platform,version:process.versions.electron};
   if(process.env.RECORTA_SMOKE_REPORT)await fs.writeFile(process.env.RECORTA_SMOKE_REPORT,JSON.stringify(report,null,2));
   console.log('NATIVE_SMOKE_PASSED');
 };

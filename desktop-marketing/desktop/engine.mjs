@@ -47,7 +47,23 @@ export class MarketingEngine {
   persist() {
     this.vault.write({ ...this.data, authRaw: this.remember ? this.authRaw : null, remember: this.remember });
   }
+  expireSessionIfNeeded() {
+    if (!this.authRaw) return false;
+    let session;
+    try { session = JSON.parse(this.authRaw); } catch { return false; }
+    if (session?.expiresAt === undefined) return false;
+    const expiration = typeof session.expiresAt === 'string' ? Date.parse(session.expiresAt) : NaN;
+    if (Number.isFinite(expiration) && expiration > this.now().getTime()) return false;
+    // Lock the open application as well as a restarted one. Account archives and
+    // pending changes remain protected in the vault until the same user logs in.
+    this.authRaw = null; this.user = null; this.epoch++; this.conflicts = [];
+    this.status = 'signed-out'; this.message = 'Sua sessão expirou. Entre novamente para sincronizar os registros salvos.';
+    this.persist();
+    this.onChange(this.view());
+    return true;
+  }
   account() {
+    this.expireSessionIfNeeded();
     if (!this.user) return null;
     return this.data.accounts[String(this.user.id)] ?? null;
   }
@@ -59,6 +75,7 @@ export class MarketingEngine {
     return marketing;
   }
   view() {
+    this.expireSessionIfNeeded();
     return { user: this.user ? clone(this.user) : null, marketing: this.currentMarketing(), today: marketingDateKey(this.now()),
       status: this.status, message: this.message, pending: this.pendingCount(), hasLoaded: this.account()?.hasLoaded === true,
       syncedAt: this.account()?.syncedAt ?? null, conflicts: this.conflicts.map(c => ({ date: c.date, field: c.field, local: c.value, remote: c.remote })),
@@ -66,12 +83,15 @@ export class MarketingEngine {
   }
   emit() { const view = this.view(); this.onChange(view); return view; }
   async request(path, { method = 'GET', body } = {}) {
+    if (path !== '/api/auth/login' && this.expireSessionIfNeeded()) throw Object.assign(new Error(this.message), { status: 401 });
     const response = await this.api(path, { method, ...(body === undefined ? {} : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }) });
     const result = await response.json();
+    if (this.expireSessionIfNeeded()) throw Object.assign(new Error(this.message), { status: 401 });
     if (!response.ok) { const error = new Error(result.error || 'Não foi possível concluir. Tente novamente.'); error.status = response.status; throw error; }
     return result;
   }
   async restore() {
+    this.expireSessionIfNeeded();
     if (!this.authRaw) { this.status = 'signed-out'; return this.emit(); }
     try {
       const result = await this.request('/api/auth/me');
@@ -98,6 +118,7 @@ export class MarketingEngine {
     this.persist();
   }
   async login(input) {
+    this.expireSessionIfNeeded();
     if (this.user) throw new Error('Saia da conta atual antes de trocar de usuário.');
     if (!input || typeof input.username !== 'string' || typeof input.password !== 'string'
       || input.username.length > 80 || !input.username.trim() || !input.password || input.password.length > 200) throw new Error('Preencha usuário e senha.');
@@ -134,14 +155,16 @@ export class MarketingEngine {
   }
   reset(date) {
     if (date !== marketingDateKey(this.now())) throw new Error('O dia mudou. Nenhum registro anterior foi zerado.');
-    if (!this.account()?.hasLoaded) throw new Error('Aguarde os dados carregarem.');
-    const previous = clone(this.account().pending);
+    const account = this.account();
+    if (!account?.hasLoaded) throw new Error('Aguarde os dados carregarem.');
+    const previous = clone(account.pending);
     try {
       for (const { id } of marketingCounters) this.edit({ field: id, value: 0, date });
-    } catch (error) { this.account().pending = previous; this.persist(); this.emit(); throw error; }
+    } catch (error) { account.pending = previous; this.persist(); this.emit(); throw error; }
     return this.view();
   }
   async sync() {
+    if (this.expireSessionIfNeeded()) return this.view();
     if (this.syncPromise) return this.syncPromise;
     if (!this.user || !this.authRaw) return this.view();
     const epoch = this.epoch;
@@ -197,6 +220,7 @@ export class MarketingEngine {
   }
   async resolveConflict(choice) {
     if (!['local', 'server'].includes(choice)) throw new Error('Escolha inválida.');
+    if (this.expireSessionIfNeeded()) return this.view();
     if (this.syncPromise) await this.syncPromise;
     if (!this.user || !this.conflicts.length) return this.view();
     const remote = await this.request('/api/data');
@@ -221,6 +245,7 @@ export class MarketingEngine {
     this.status = 'signed-out'; this.message = ''; this.persist(); return this.emit();
   }
   report(date) {
+    this.expireSessionIfNeeded();
     if (!this.user) throw new Error('Entre na sua conta primeiro.');
     if (date !== marketingDateKey(this.now()) && !this.currentMarketing().days.some(d => d.date === date)) throw new Error('Dia não encontrado.');
     return buildMarketingReport(getMarketingDay(this.currentMarketing(), date, this.user.displayName));

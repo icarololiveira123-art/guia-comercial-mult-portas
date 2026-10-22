@@ -4,7 +4,7 @@ import { employeeData, employeeUsers } from "../../../../db/schema";
 import { adminNotFound, getAdminSession } from "../_lib";
 import { hashPassword, userPayload } from "../../auth/_lib";
 import { parseEmployeeProfile } from "./_validation";
-import { rejectUntrustedMutation } from "../../_security";
+import { rejectUntrustedMutation, safeErrorDetails } from "../../_security";
 import { summarizeEmployeeState } from "../../data/state-contract.mjs";
 import { readBoundedAuthJson } from "../../auth/_request-guard";
 
@@ -38,7 +38,7 @@ export async function GET(request: Request) {
       })),
     });
   } catch (error) {
-    console.error("admin_users_failed", { message: error instanceof Error ? error.message : String(error) });
+    console.error("admin_users_failed", safeErrorDetails(error));
     return jsonResponse({ error: "Não foi possível carregar as contas." }, 503);
   }
 }
@@ -84,7 +84,7 @@ export async function POST(request: Request) {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (/unique|constraint/i.test(message)) return jsonResponse({ error: "Esse usuário já está cadastrado." }, 409);
-    console.error("admin_user_create_failed", { message });
+    console.error("admin_user_create_failed", safeErrorDetails(error));
     return jsonResponse({ error: "Não foi possível criar o funcionário." }, 503);
   }
 }

@@ -4,6 +4,7 @@ import { employeeData } from "../../../db/schema";
 import { getSessionUser } from "../auth/_lib";
 import { rejectUntrustedMutation } from "../_security";
 import { normalizeEmployeeState } from "./state-contract.mjs";
+import { readLimitedRequestText, RequestBodyLimitError } from "../_request-body";
 
 function jsonResponse(body: Record<string, unknown>, status = 200) {
   return Response.json(body, {
@@ -59,20 +60,16 @@ async function writeData(request: Request) {
 
   let body: { state?: unknown; baseRevision?: unknown };
   try {
-    const contentLength = Number(request.headers.get("content-length") ?? 0);
-    if (Number.isFinite(contentLength) && contentLength > MAX_REQUEST_BODY_LENGTH) {
-      return jsonResponse({ error: "Os dados enviados ultrapassaram o limite." }, 413);
-    }
-    const raw = await request.text();
-    if (raw.length > MAX_REQUEST_BODY_LENGTH) {
-      return jsonResponse({ error: "Os dados enviados ultrapassaram o limite." }, 413);
-    }
+    const raw = await readLimitedRequestText(request, MAX_REQUEST_BODY_LENGTH);
     const parsed = JSON.parse(raw) as unknown;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       return jsonResponse({ error: "Dados inválidos." }, 400);
     }
     body = parsed as typeof body;
-  } catch {
+  } catch (error) {
+    if (error instanceof RequestBodyLimitError) {
+      return jsonResponse({ error: "Os dados enviados ultrapassaram o limite." }, 413);
+    }
     return jsonResponse({ error: "Dados inválidos." }, 400);
   }
 
@@ -84,7 +81,7 @@ async function writeData(request: Request) {
   }
 
   const stateJson = JSON.stringify(normalizeEmployeeState(body.state));
-  if (stateJson.length > 400_000) return jsonResponse({ error: "Os dados salvos ultrapassaram o limite." }, 413);
+  if (new TextEncoder().encode(stateJson).byteLength > 400_000) return jsonResponse({ error: "Os dados salvos ultrapassaram o limite." }, 413);
 
   const db = await getDb();
   // Keep the ISO prefix sortable/readable for the admin panel while the UUID
